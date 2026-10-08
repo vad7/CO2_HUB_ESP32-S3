@@ -32,9 +32,9 @@
 
 		<fieldset id="g_tasks"><legend>Задачи FreeRTOS</legend>
 		<table class="mdbtab" id="t_tasks">
-			<tr><th>Задача</th><th>Состояние</th><th>Приоритет</th><th>Ядро</th><th>Стек мин., байт</th><th>Время, мс</th><th>Итого</th></tr>
+			<tr><th>Задача</th><th>Состояние</th><th>Приоритет</th><th>Ядро</th><th>Стек мин., б</th><th>Время, мс</th><th>Итого</th></tr>
 		</table>
-		<p class="center"><small>Стек мин. — наименьший свободный стек задачи с её создания (меньше <span data-var="rtos_stack_warn"></span> байт — красным).
+		<p class="center"><small>Стек мин. — наименьший свободный стек задачи с её создания (меньше <span data-var="rtos_stack_warn"></span> б — красным).
 			Время и «Итого» — с запуска, доля от времени обоих ядер. Обновление раз в 2 с.</small></p>
 		<p class="center status error" id="t_over" style="display:none">Задач больше, чем вмещает таблица прошивки (SYSINFO_TASKS_MAX) — список пуст.</p>
 		</fieldset>

@@ -303,6 +303,8 @@ constexpr uint32_t WEB_STACK_SIZE        = 8192;
 // --- Главный цикл ---
 constexpr uint32_t LOOP_YIELD_TICKS      = 1;       // в конце loop() уступить ядро на 1 тик FreeRTOS (1 мс при 1000 Гц):
                                                     // проход не чаще 1000 раз/с — с запасом для всех автоматов
+constexpr uint32_t LOOP_STAT_PERIOD_MS   = 10000;   // окно замера: в конце — максимумы за окно
+constexpr uint32_t LOOP_SLOW_MS          = 50;      // печатать, только если самый долгий проход за окно дольше
 
 // --- Состояние системы (sys_info.cpp) ---
 constexpr uint32_t SYSINFO_PERIOD_MS     = 2000;    // снимок задач FreeRTOS, загрузка ядер, температура кристалла
@@ -313,9 +315,9 @@ constexpr uint8_t  SYSINFO_TASK_NAME_LEN = 16;      // = configMAX_TASK_NAME_LEN
 // --- Интерфейс ---
 constexpr uint32_t UI_REFRESH_MS         = 250;
 constexpr uint32_t UI_SETUP_TIMEOUT_MS   = 30000;   // выход из настроек при бездействии
+constexpr uint32_t UI_SYSTEM_TIMEOUT_MS  = 60UL * 60 * 1000;   // группа «Система» (состояние, задачи, сеть — смотрят подолгу): выход через 60 мин
 constexpr uint32_t UI_HISTORY_TIMEOUT_MS = 30000;   // возврат с графика истории на главный экран
 constexpr uint32_t UI_MAIN_BUTTONS_MS    = 10000;   // кнопки главного экрана скрываются без касаний
-constexpr bool     UI_TOUCH_LOG          = true;    // печать координат касаний в Serial (проверка тача)
 constexpr uint8_t  TOUCH_CAL_MARK_SIZE   = 14;      // размер отметки калибровки в углу, px
 constexpr uint32_t TOUCH_CAL_DONE_MS     = 1000;    // показ «Сохранено» после калибровки (setup)
 constexpr uint32_t WEB_RESTART_DELAY_MS  = 500;     // перезапуск по команде из веба (после ответа)
@@ -333,3 +335,5 @@ constexpr uint8_t  BRIGHT_STEP_PCT       = 5;       // шаг в тач-меню
 constexpr uint8_t  LCD_BL_MAX            = 255;     // шкала ШИМ подсветки LovyanGFX
 constexpr uint32_t SERIAL_BAUD           = 115200;
 constexpr uint32_t SERIAL_WAIT_MS        = 1500;    // ожидание USB-CDC в setup()
+constexpr uint32_t SERIAL_TX_TIMEOUT_MS  = 0;       // USB-CDC: не ждать отправки — без открытого терминала вывод
+                                                    // отбрасывается, а не тормозит loop() (касания срабатывали через ~2 с)

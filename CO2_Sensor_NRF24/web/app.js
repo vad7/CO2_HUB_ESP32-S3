@@ -63,12 +63,12 @@ var App = {
 		var n = Number(sec);
 		return n ? new Date(n * 1000).toLocaleString('ru-RU') : '---';
 	},
-	/* Объём: «512 Б», «181 КБ», «2.3 МБ» */
+	/* Объём: «512 б», «181 Кб», «2.3 Мб» */
 	bytes: function (n) {
 		n = Number(n) || 0;
-		if (n < 1024) return n + ' Б';
-		if (n < 1048576) return Math.round(n / 1024) + ' КБ';
-		return (n / 1048576).toFixed(1) + ' МБ';
+		if (n < 1024) return n + ' б';
+		if (n < 1048576) return Math.round(n / 1024) + ' Кб';
+		return (n / 1048576).toFixed(1) + ' Мб';
 	},
 	utf8Len: function (s) {
 		return new TextEncoder().encode(s).length;

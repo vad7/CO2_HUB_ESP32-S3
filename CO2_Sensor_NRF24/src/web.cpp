@@ -378,7 +378,7 @@ static void varsSys(Json& j, const ReqCtx&)
     j.str ("sys_sensor",     CO2_SENSOR_NAME);
     j.num ("sys_mactime",    (long)Net::bootEpoch());
     j.unum("sys_uptime",     Net::uptimeS());
-    j.strf("sys_heap",       "%lu / %lu байт", (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getFreePsram());
+    j.strf("sys_heap",       "%lu / %lu б", (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getFreePsram());
     j.num ("sntp_time",      Net::timeValid() ? (long)time(nullptr) : 0L);
     if (!Net::timeValid())                                  j.str("sntp_status", "не установлено");
     else if (Net::timeSource() == Net::TimeSource::Manual)  j.str("sntp_status", "установлено вручную");

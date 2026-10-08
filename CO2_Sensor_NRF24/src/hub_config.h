@@ -81,6 +81,7 @@ struct CfgCo2 {
     uint8_t  tempSensor;                  // TempSensorType: 0 — нет, 1 — DS18B20, 2 — SHT40
     uint16_t historyDays;                 // размер истории, сутки (HISTORY_DAYS_MIN..MAX)
     uint8_t  digitsFont;                  // DigitsFont: 0 — 7-сегментные, 1 — сглаженные (Montserrat)
+    uint8_t  debug;                       // 1 — отладка: диагностика в Serial (касания, замер loop()); по умолч. 0
     // новые поля — сюда
     CFG_END_MARKER;
 };

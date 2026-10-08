@@ -58,6 +58,7 @@ static void defaultsCo2()
     co2.tempPeriodS     = TEMP_PERIOD_DEF_S;
     co2.tempSensor      = TEMP_SENSOR_NONE;
     co2.digitsFont      = DIGITS_FONT_SMOOTH;
+    co2.debug           = 0;
     co2.nightStart      = NIGHT_START_DEF;
     co2.nightEnd        = NIGHT_END_DEF;
     co2.nightStartWd    = NIGHT_START_WD_DEF;
@@ -136,6 +137,7 @@ void sanitize()
     if (co2.tempSensor >= TEMP_SENSOR_COUNT || (co2.tempSensor == TEMP_SENSOR_DS18B20 && !TEMP_DS18B20_AVAILABLE))
         co2.tempSensor = TEMP_SENSOR_NONE;
     if (co2.digitsFont >= DIGITS_FONT_COUNT) co2.digitsFont = DIGITS_FONT_SMOOTH;
+    if (co2.debug > 1) co2.debug = 0;
 }
 
 // ------------------------------------------------------------------------------------------

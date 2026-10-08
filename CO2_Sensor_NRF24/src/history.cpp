@@ -75,7 +75,7 @@ bool configure(uint16_t days, uint16_t periodS, bool withTemp)
     s_head = s_count = s_tempCnt = 0;
     s_rangeDirty = true;
     if (withTemp) setTemp(true);
-    Serial.printf("История: %lu сут при %u с -> нужно %lu записей, выделено %lu (%s), CO2 %lu Б, температура %lu Б\n",
+    Serial.printf("История: %lu сут при %u с -> нужно %lu записей, выделено %lu (%s), CO2 %lu б, температура %lu б\n",
                   (unsigned long)days, periodS, (unsigned long)s_wanted, (unsigned long)s_cap, s_psram ? "PSRAM" : "RAM",
                   (unsigned long)co2Bytes(), (unsigned long)tempBytes());
     return s_buf != nullptr;
