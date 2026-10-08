@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html><head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Система</title>
+	<link rel="stylesheet" href="/style.css">
+	<script src="/app.js"></script>
+</head><body data-groups="main,hist,cpu">
+<div id="app_menu"></div>
+	<div class="content">
+		<h2 class="title">Система</h2>
+
+		<fieldset id="g_system"><legend>Прошивка и устройство</legend>
+		<table class="form">
+			<tr><td class="label">Версия прошивки:</td><td><span data-var="sys_ver"></span>, плата <span data-var="sys_board"></span>, датчик <span data-var="sys_sensor"></span></td></tr>
+			<tr><td class="label">Дата компиляции:</td><td data-var="sys_build"></td></tr>
+			<tr><td class="label">Автор:</td><td data-var="sys_author"></td></tr>
+			<tr><td class="label">Время включения:</td><td><span data-var="sys_mactime" data-fmt="time"></span> (аптайм <span data-var="sys_uptime"></span> с)</td></tr>
+			<tr><td class="label">Скорость (пред.):</td><td data-var="fan_speed_previous"></td></tr>
+			<tr><td class="label">Свободно RAM / PSRAM:</td><td data-var="sys_heap"></td></tr>
+		</table>
+		</fieldset>
+
+		<fieldset id="g_cpu"><legend>Процессор</legend>
+		<table class="form">
+			<tr><td class="label">Загрузка ядер:</td><td><span data-var="cpu_load0"></span>%, <span data-var="cpu_load1"></span>%
+				<small>(доля времени вне задачи простоя FreeRTOS, раз в 2 с; ядро 0 — Wi-Fi, ядро 1 — программа)</small></td></tr>
+			<tr><td class="label">Температура кристалла:</td><td><span data-var="chip_temp"></span> °C
+				<small>(встроенный датчик ESP32-S3; выше комнатной)</small></td></tr>
+		</table>
+		</fieldset>
+
+		<fieldset id="g_tasks"><legend>Задачи FreeRTOS</legend>
+		<table class="mdbtab" id="t_tasks">
+			<tr><th>Задача</th><th>Состояние</th><th>Приоритет</th><th>Ядро</th><th>Стек мин., байт</th><th>Время, мс</th><th>Итого</th></tr>
+		</table>
+		<p class="center"><small>Стек мин. — наименьший свободный стек задачи с её создания (меньше <span data-var="rtos_stack_warn"></span> байт — красным).
+			Время и «Итого» — с запуска, доля от времени обоих ядер. Обновление раз в 2 с.</small></p>
+		<p class="center status error" id="t_over" style="display:none">Задач больше, чем вмещает таблица прошивки (SYSINFO_TASKS_MAX) — список пуст.</p>
+		</fieldset>
+
+		<fieldset id="g_buffers"><legend>Буферы истории</legend>
+		<table class="mdbtab">
+			<tr><th>Буфер</th><th>Занято памяти</th><th>Записей сейчас</th><th>Вмещает</th></tr>
+			<tr><td>CO<sub>2</sub></td><td id="b_co2"></td><td data-var="history_count"></td><td id="b_cap"></td></tr>
+			<tr><td>Температура</td><td id="b_temp"></td><td id="b_tcount"></td><td id="b_tcap"></td></tr>
+			<tr><th>Всего</th><th id="b_total"></th><th></th><th id="b_where"></th></tr>
+		</table>
+		<p id="b_note" class="center"></p>
+		<p class="center">Размер задаётся в сутках — <a href="settings.htm#g_sensors">Настройки → История и датчики</a>.</p>
+		</fieldset>
+	</div>
+<div id="app_footer"></div>
+<script>
+/* Буферы истории: фактически выделено (байт и записей), сколько записано, на сколько суток */
+function days(rec, v) { return (rec * v.cfg_co2_period / 86400).toFixed(1) + ' сут'; }
+function update(v) {
+	tasks(v);
+	var temp = v.hist_temp_bytes > 0;
+	document.getElementById('b_co2').textContent = App.bytes(v.hist_co2_bytes);
+	document.getElementById('b_cap').textContent = v.hist_cap + ' (' + days(v.hist_cap, v) + ')';
+	document.getElementById('b_temp').textContent = temp ? App.bytes(v.hist_temp_bytes) : 'не выделен';
+	document.getElementById('b_tcount').textContent = temp ? v.hist_temp_count : '—';
+	document.getElementById('b_tcap').textContent = temp ? v.hist_cap + ' (' + days(v.hist_cap, v) + ')' : 'датчик температуры не выбран';
+	document.getElementById('b_total').textContent = App.bytes(v.hist_co2_bytes + v.hist_temp_bytes);
+	document.getElementById('b_where').textContent = v.hist_psram == 1 ? 'в PSRAM' : 'во внутренней RAM (PSRAM нет)';
+	document.getElementById('b_note').textContent = v.hist_cap < v.hist_wanted
+		? 'Ограничено памятью: заказано ' + v.hist_wanted + ' записей (' + v.cfg_hist_days + ' сут), выделено ' + v.hist_cap + '.'
+		: '';
+}
+
+/* Задачи FreeRTOS: строки [имя, состояние, приоритет, ядро, стек, мс, доля 0,1 %] */
+var TASK_STATES = ['Выполняется', 'Готова', 'Ожидает', 'Приостановлена', 'Удалена'];
+function tasks(v) {
+	var t = document.getElementById('t_tasks');
+	while (t.rows.length > 1) t.deleteRow(1);
+	(v.rtos_tasks || []).forEach(function (r) {
+		var row = t.insertRow(-1);
+		var cells = [r[0], TASK_STATES[r[1]] || '?', r[2], r[3] < 0 ? 'любое' : r[3], r[4], r[5],
+		             r[6] >= 10 ? Math.floor(r[6] / 10) + '%' : '<1%'];
+		cells.forEach(function (c, i) {
+			var td = row.insertCell(-1);
+			td.textContent = c;
+			if (i === 4 && r[4] < v.rtos_stack_warn) td.style.color = '#c0392b';
+		});
+	});
+	document.getElementById('t_over').style.display = v.rtos_overflow == 1 ? '' : 'none';
+}
+
+var started = false;
+App.start(function (v) {
+	update(v);
+	if (started) return;
+	started = true;
+	App.poll(v.cfg_co2_refresh_t, update);
+});
+</script>
+</body></html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вентиляция</title>
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js"></script>
+</head><body data-groups="main,fans,radio">
+<div id="app_menu"></div>
+<div class="content">
+<h2 class="title"><span style="font-weight:normal">CO<small><sub>2</sub></small>:</span>&nbsp;&nbsp;<span id="co2" data-var="CO2_current"></span>&nbsp;<span style="font-weight:normal"><small>ppm</small></span></h2>
+<p class="center" data-var="CO2_last_time" data-fmt="time"></p>
+<p class="center temp" hidden>Температура: <b><span data-var="temp_c"></span> °C</b><span id="rh"></span></p>
+<p id="night" class="center"></p>
+<table id="fans" class="mdbtab">
+	<tr><th>№</th><th>Место</th><th>Скорость</th><th id="col_time">Отправлена</th><th colspan="3" width="36%">Корректировка на &nbsp;<input title="0 - неограничено" id="fsp_time" size="3" maxlength="5">&nbsp; мин.</th></tr>
+</table>
+<br>
+<form data-api>
+Корректировать: Скорость:&nbsp;<input title="-6..6" name="cfg_vars_fans_speed_ov" maxlength="2" size="3">&nbsp;&nbsp;
+Ночь: <label><input type="radio" name="now_night_ov" value="0">авто</label>
+<label><input type="radio" name="now_night_ov" value="2"> да</label>
+<label><input type="radio" name="now_night_ov" value="1"> нет</label>&nbsp;
+<button type="submit" class="button">установить</button>
+</form>
+<br>
+Текущее время: <span data-var="sntp_time" data-fmt="time"></span>&nbsp;(<span data-var="sntp_status"></span>)<br>
+Время включения: <span data-var="sys_mactime" data-fmt="time"></span><br>
+Режим связи: <span id="radio_mode"></span> (<a href="settings.htm#g_radio">изменить</a>)<br>
+</div>
+<div id="app_footer"></div>
+<script>
+var FSP_COOKIE = 'fsp_time';
+
+/* Корректировка вентилятора i: p — +1, m — −1 (на fsp_time мин.), c — снять */
+function fanOverride(i, cmd) {
+	var min = cmd == 'c' ? 0 : (Number(document.getElementById('fsp_time').value) || 0);
+	App.send({ cfg_fan_: i, cfg_fan_override: cmd + min }, function () { App.load(false, update); });
+}
+
+function cmdCell(r, i, text, cmd, title) {
+	var c = r.insertCell(-1);
+	c.textContent = text;
+	c.className = 's';
+	if (title) c.title = title;
+	c.onclick = function () { fanOverride(i, cmd); };
+}
+
+/* Таблица вентиляторов: строки пересоздаются только при изменении их числа */
+function buildTable(n) {
+	var tbl = document.getElementById('fans');
+	if (tbl.rows.length - 1 == n) return;
+	while (tbl.rows.length > 1) tbl.deleteRow(-1);
+	for (var i = 0; i < n; i++) {
+		var r = tbl.insertRow(-1);
+		r.insertCell(-1).textContent = i + 1;
+		r.insertCell(-1);
+		r.insertCell(-1);
+		r.insertCell(-1);
+		cmdCell(r, i, '+', 'p');
+		cmdCell(r, i, '-', 'm');
+		cmdCell(r, i, '*', 'c', 'Снять корректировку');
+	}
+	tbl.hidden = n == 0;
+}
+
+function update(v) {
+	var t = document.querySelectorAll('.temp');
+	for (var k = 0; k < t.length; k++) t[k].hidden = v.temp_en != 1;
+	document.getElementById('rh').innerHTML = v.temp_rh !== '' ? ', влажность <b>' + v.temp_rh + ' %</b>' : '';
+	document.getElementById('night').textContent = v.night == 1 ? '* ночь *' : '';
+	var co2 = Number(v.CO2_current), e = document.getElementById('co2');
+	e.style.color = co2 <= 500 ? 'green' : co2 <= 700 ? 'black' : co2 <= 900 ? 'darkorange' : 'red';
+	buildTable(v.fans.length);
+	var tbl = document.getElementById('fans');
+	for (var i = 0; i < v.fans.length; i++) {
+		var fn = v.fans[i], r = tbl.rows[i + 1];
+		r.cells[1].textContent = fn.name;
+		r.cells[1].style.color = (fn.fl & 1) ? 'gray' : '';
+		r.cells[2].textContent = fn.spc;
+		r.cells[2].style.color = (fn.fl & 2) ? 'red' : '';
+		r.cells[2].title = !(fn.fl & 2) ? '' : fn.fspt == 0 ? 'Безвременная корректировка'
+			: 'Корректировка закончится через ' + Math.round(fn.fspt / 60) + ' мин.';
+		r.cells[3].textContent = fn.ttm == 0 ? '---' : new Date(fn.ttm * 1000).toTimeString().substr(0, 8);
+		r.cells[3].style.color = fn.tst > 1 ? 'red' : '';
+		r.cells[3].title = '';
+		if ('rst' in fn) {   // пассивный режим: состояние, сообщённое вентилятором
+			if (fn.off) r.cells[2].textContent += ' (выкл)';
+			if (fn.adj) r.cells[2].textContent += ' (' + (fn.adj > 0 ? '+' : '') + fn.adj + ')';
+			r.cells[3].title = fn.eep ? 'Вентилятор: сбой ячейки EEPROM'
+				: fn.tst == 3 ? 'Нет запросов от вентилятора дольше тайм-аута'
+				: 'Последний запрос; состояние вентилятора 0x' + fn.rst.toString(16).toUpperCase();
+		}
+	}
+	document.getElementById('radio_mode').textContent = v.cfg_co2_radio_mode == 1
+		? 'пассивный (вентиляторы запрашивают), канал ' + v.cfg_co2_passive_ch : 'активный (хаб передаёт)';
+	document.getElementById('col_time').textContent = v.cfg_co2_radio_mode == 1 ? 'Запрос' : 'Отправлена';
+}
+
+var started = false;
+App.start(function (v) {
+	update(v);
+	if (started) return;
+	started = true;
+	var fsp = document.getElementById('fsp_time'), saved = App.getCookie(FSP_COOKIE);
+	fsp.value = saved != null ? saved : v.fsp_time_def;
+	fsp.onchange = function () { App.setCookie(FSP_COOKIE, fsp.value); };
+	App.poll(v.cfg_co2_refresh_t, update);
+});
+</script>
+</body></html>

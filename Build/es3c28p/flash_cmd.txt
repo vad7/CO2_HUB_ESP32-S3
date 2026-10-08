@@ -1,0 +1,1 @@
+esptool.py --chip esp32s3 write_flash 0x00000 bootloader.bin 0x08000 partitions.bin 0x10000 firmware_es3c28p_k22_2.0.0.bin

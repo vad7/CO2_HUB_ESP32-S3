@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html><head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Вентиляция - История</title>
+	<link rel="stylesheet" href="/style.css">
+	<script src="/d3.min.js"></script>
+	<script src="/app.js"></script>
+<style>
+svg { font: 10px sans-serif; }
+.area { fill: steelblue; }
+.focus .area { clip-path: url(#clip); }
+.axis path, .axis line { fill: none; stroke: #000; shape-rendering: crispEdges; }
+.brush .selection { stroke: #fff; fill-opacity: .125; shape-rendering: crispEdges; }
+#chart { overflow-x: auto; }
+.tline { fill: none; stroke: red; stroke-width: 1.5px; }
+.focus .tline { clip-path: url(#clip); }
+.axis--t text { fill: red; }
+.axis--t path, .axis--t line { stroke: red; }
+</style>
+</head>
+<body data-groups="main,hist">
+<div id="app_menu"></div>
+<div class="content">
+<h2 class="title">История CO<sub>2</sub>, ppm<span id="t_title" hidden> <span style="color:red">и температура, °C</span></span></h2>
+<div id="chart"></div>
+<p id="empty" class="center" hidden>История пуста (нет данных или время ещё не синхронизировано).</p>
+<p class="center">Выделите участок на нижнем графике, чтобы увеличить.</p>
+Последнее измерение: <span data-var="CO2_last_time" data-fmt="time"></span><br>
+Записей: <span data-var="history_count"></span> из <span data-var="hist_cap"></span>,
+с температурой: <span data-var="hist_temp_count"></span> (размер — <a href="settings.htm#g_sensors">в настройках</a>, память — <a href="info.htm">на странице «?»</a>)<br>
+<a href="history.csv">Скачать history.csv</a><br>
+</div>
+<div id="app_footer"></div>
+<script>
+// Перенос графика хаба (d3 v3) на d3 v7: area + brush (focus/context)
+var margin = {top: 10, right: 40, bottom: 80, left: 40},
+	margin2 = {top: 180, right: 40, bottom: 20, left: 40},
+	width = 720 - margin.left - margin.right,
+	height = 240 - margin.top - margin.bottom,
+	height2 = 240 - margin2.top - margin2.bottom;
+
+var parseDate = d3.timeParse("%Y-%m-%d %H:%M:%S");
+
+var x = d3.scaleTime().range([0, width]),
+	x2 = d3.scaleTime().range([0, width]),
+	y = d3.scaleLinear().range([height, 0]),
+	y2 = d3.scaleLinear().range([height2, 0]),
+	yT = d3.scaleLinear().range([height, 0]),     // температура: своя шкала справа, мин..макс по всему буферу
+	yT2 = d3.scaleLinear().range([height2, 0]);
+
+var xAxis = d3.axisBottom(x),
+	xAxis2 = d3.axisBottom(x2),
+	yAxis = d3.axisLeft(y),
+	yAxisR = d3.axisRight(y),
+	yAxisT = d3.axisRight(yT);
+
+var brush = d3.brushX()
+	.extent([[0, 0], [width, height2]])
+	.on("brush end", brushed);
+
+var area = d3.area()
+	.x(function(d) { return x(d.date); })
+	.y0(height)
+	.y1(function(d) { return y(d.value); });
+
+var area2 = d3.area()
+	.x(function(d) { return x2(d.date); })
+	.y0(height2)
+	.y1(function(d) { return y2(d.value); });
+
+// температура — линия с разрывами там, где данных нет
+var tline = d3.line()
+	.defined(function(d) { return d.temp != null; })
+	.x(function(d) { return x(d.date); })
+	.y(function(d) { return yT(d.temp); });
+
+var tline2 = d3.line()
+	.defined(function(d) { return d.temp != null; })
+	.x(function(d) { return x2(d.date); })
+	.y(function(d) { return yT2(d.temp); });
+
+var svg = d3.select("#chart").append("svg")
+	.attr("width", width + margin.left + margin.right)
+	.attr("height", height + margin.top + margin.bottom);
+
+svg.append("defs").append("clipPath")
+	.attr("id", "clip")
+	.append("rect")
+	.attr("width", width)
+	.attr("height", height);
+
+var focus = svg.append("g")
+	.attr("class", "focus")
+	.attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+var context = svg.append("g")
+	.attr("class", "context")
+	.attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
+
+function draw(v) {
+d3.dsv(v.cfg_co2_csv_delim, "history.csv", function(d) {
+	return { date: parseDate(d.date), value: +d.value,
+		temp: d.temp == null || d.temp === '' ? null : +d.temp };   // столбец temp пуст — нет данных
+}).then(function(data) {
+	data = data.filter(function(d) { return d.date != null; });
+	data.sort(function(a, b) { return a.date - b.date; });
+	if (data.length == 0) { document.getElementById('empty').hidden = false; return; }
+	x.domain(d3.extent(data, function(d) { return d.date; }));
+	y.domain([0, d3.max(data, function(d) { return d.value; })]);
+	x2.domain(x.domain());
+	y2.domain(y.domain());
+	var tdata = data.filter(function(d) { return d.temp != null; }), hasT = tdata.length > 0;
+	if (hasT) {
+		var te = d3.extent(tdata, function(d) { return d.temp; });
+		if (te[1] - te[0] < 1) { te[0] -= 0.5; te[1] += 0.5; }   // не меньше 1 °C на всю высоту
+		yT.domain(te);
+		yT2.domain(te);
+		document.getElementById('t_title').hidden = false;
+	}
+
+	focus.append("path").datum(data).attr("class", "area").attr("d", area);
+	focus.append("g").attr("class", "axis axis--x").attr("transform", "translate(0," + height + ")").call(xAxis);
+	focus.append("g").attr("class", "axis axis--y").call(yAxis);
+	if (hasT) {
+		focus.append("path").datum(data).attr("class", "tline").attr("d", tline);
+		focus.append("g").attr("class", "axis axis--t").attr("transform", "translate(" + width + ",0)").call(yAxisT);
+	} else {
+		focus.append("g").attr("class", "axis axis--y").attr("transform", "translate(" + width + ",0)").call(yAxisR);
+	}
+
+	context.append("path").datum(data).attr("class", "area").attr("d", area2);
+	if (hasT) context.append("path").datum(data).attr("class", "tline").attr("d", tline2);
+	context.append("g").attr("class", "axis axis--x").attr("transform", "translate(0," + height2 + ")").call(xAxis2);
+	context.append("g").attr("class", "brush").call(brush);
+});
+}
+App.start(draw);
+
+function brushed(event) {
+	var s = event.selection;
+	x.domain(s ? s.map(x2.invert, x2) : x2.domain());
+	focus.select(".area").attr("d", area);
+	focus.select(".tline").attr("d", tline);
+	focus.select(".axis--x").call(xAxis);
+}
+</script>
+</body></html>

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html><head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Настройки</title>
+	<link rel="stylesheet" href="/style.css">
+	<script src="/app.js"></script>
+</head><body data-groups="main,cfg,hist,radio,status,net">
+<div id="app_menu"></div>
+	<div class="content">
+		<h2 class="title">Настройки</h2>
+		<p class="center toc">
+			<a href="#g_control">Управление</a> · <a href="#g_fans">Вентиляторы</a> · <a href="#g_co2">Пороги CO<sub>2</sub></a> ·
+			<a href="#g_night">Ночь</a> · <a href="#g_radio">Радио nRF24</a> · <a href="#g_sensors">История и датчики</a> ·
+			<a href="#g_screen">Экран</a> · <a href="#g_net">Сеть</a> · <a href="#g_access">Пароль</a> · <a href="#g_ota">Прошивка</a> · <a href="#g_clock">Часы</a> · <a href="info.htm">Система (?)</a>
+		</p>
+
+		<fieldset id="g_control"><legend>Управление</legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Общая поправка скорости:</td>
+					<td><input title='-6..0..+6' name='cfg_vars_fans_speed_ov' maxlength='4' size='5'></td></tr>
+			</table>
+			<input type='hidden' name='cfg_vars_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
+		</form>
+		</fieldset>
+
+		<fieldset id="g_fans"><legend>Вентиляторы</legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Количество вентиляторов:</td>
+					<td><input title='0..10' name='cfg_co2_fans' maxlength='4' size='5'>
+					&nbsp;<a href="setfans.htm">настроить каждый...</a></td></tr>
+			</table>
+			<input type='hidden' name='cfg_co2_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
+		</form>
+		</fieldset>
+
+		<fieldset id="g_co2"><legend>Пороги CO<sub>2</sub></legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Пороги скорости 1..6, ppm:</td>
+					<td><input title='n,n,n,n,n,n' name='cfg_co2_fans_speed_th' size='34' maxlength='50'></td></tr>
+				<tr><td class="label">Гистерезис понижения скорости, ppm:</td>
+					<td><input title='ppm' name='cfg_co2_fans_speed_delta' maxlength='10' size='7'></td></tr>
+			</table>
+			<input type='hidden' name='cfg_co2_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
+		</form>
+		</fieldset>
+
+		<fieldset id="g_night"><legend>Ночь</legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Начало ночи (будни):</td>
+					<td><input title='hhmm' name='cfg_co2_night_start' maxlength='4' size='5'></td></tr>
+				<tr><td class="label">Конец ночи (будни):</td>
+					<td><input title='hhmm' name='cfg_co2_night_end' maxlength='4' size='5'></td></tr>
+				<tr><td class="label">Начало ночи (выходные):</td>
+					<td><input title='hhmm' name='cfg_co2_night_start_wd' maxlength='4' size='5'></td></tr>
+				<tr><td class="label">Конец ночи (выходные):</td>
+					<td><input title='hhmm' name='cfg_co2_night_end_wd' maxlength='4' size='5'></td></tr>
+				<tr><td class="label">Макс. скорость ночью:</td>
+					<td><input title='0..6' name='cfg_co2_night_max' maxlength='4' size='5'></td></tr>
+			</table>
+			<input type='hidden' name='cfg_co2_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
+		</form>
+		</fieldset>
+
+		<fieldset id="g_radio"><legend>Радио nRF24</legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Режим связи с вентиляторами:</td>
+					<td><select name='cfg_co2_radio_mode'
+						title='Активный — хаб передаёт каждому вентилятору на его канале. Пассивный — вентиляторы сами запрашивают хаб на общем канале, ответ в ACK (до 3 вентиляторов). Переключается сразу после сохранения.'>
+						<option value='0'>Активный (хаб передаёт)</option>
+						<option value='1'>Пассивный (вентиляторы запрашивают)</option>
+					</select></td></tr>
+				<tr><td class="label">Канал пассивного режима:</td>
+					<td><input title='0..125, общий для всех вентиляторов' name='cfg_co2_passive_ch' maxlength='3' size='5'>
+					&nbsp;запросов принято: <span data-var="radio_rx_count"></span></td></tr>
+				<tr><td class="label">Перезапуск nRF24 без запросов, с:</td>
+					<td><input title='пассивный режим: нет запросов дольше — перезапуск модуля; 0 — не перезапускать' name='cfg_co2_radio_reset' maxlength='5' size='7'></td></tr>
+				<tr><td class="label">Период рассылки вентиляторам, с:</td>
+					<td><input title='2..3600; это и шаг записей истории — при смене история очищается' name='cfg_co2_period' maxlength='5' size='7'></td></tr>
+				<tr><td class="label">Регистры nRF24:</td><td data-var="radio_regs"></td></tr>
+			</table>
+			<input type='hidden' name='cfg_co2_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
+		</form>
+		</fieldset>
+
+		<fieldset id="g_sensors"><legend>История и датчики</legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Размер истории, сутки:</td>
+					<td><input title='1..365. Записей = сутки × 86400 / период рассылки; CO2 — 6 байт на запись, температура — ещё 2 (если датчик выбран). Не помещается в память — выделяется сколько влезет. При смене история очищается' name='cfg_hist_days' id='hist_days' maxlength='3' size='4'>
+					&nbsp;<span id="hist_est"></span></td></tr>
+				<tr><td class="label">Сейчас в истории:</td>
+					<td><span data-var="history_count"></span> из <span data-var="hist_cap"></span> записей
+					(<a href="info.htm">память буферов</a>)</td></tr>
+				<tr><td class="label">Разделитель в .csv:</td>
+					<td><input title='char' name='cfg_co2_csv_delim' maxlength='1' size='2'></td></tr>
+				<tr><td class="label">Датчик CO<sub>2</sub> (<span data-var="sys_sensor"></span>):</td><td data-var="co2_status"></td></tr>
+				<tr><td class="label">Датчик температуры:</td>
+					<td><select name='cfg_temp_sensor' title='Применяется сразу после сохранения. DS18B20 — 1-Wire (вывод — Readme.md §3); SHT40 — на шине I2C, показывает и влажность'>
+						<option value='0'>нет</option>
+						<option value='1' id='opt_ds'>DS18B20 (1-Wire)</option>
+						<option value='2'>SHT40 (I2C, + влажность)</option>
+					</select></td></tr>
+				<tr><td class="label">Период чтения температуры, с:</td>
+					<td><input title='1..60' name='cfg_temp_period' maxlength='2' size='3'></td></tr>
+				<tr><td class="label">Датчик температуры сейчас:</td><td data-var="temp_status"></td></tr>
+			</table>
+			<input type='hidden' name='cfg_co2_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
+		</form>
+		</fieldset>
+
+		<fieldset id="g_screen"><legend>Экран и веб</legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Яркость экрана днём, %:</td>
+					<td><input title='5..100' name='cfg_co2_bright_day' maxlength='3' size='5'></td></tr>
+				<tr><td class="label">Яркость экрана ночью, %:</td>
+					<td><input title='5..100 (ночь — по расписанию или переключателю на главной)' name='cfg_co2_bright_night' maxlength='3' size='5'></td></tr>
+				<tr><td class="label">Шрифт цифр CO<sub>2</sub>:</td>
+					<td><select name='cfg_digits_font' title='Крупные цифры на главном экране; применяется сразу после сохранения'>
+						<option value='0'>7-сегментный</option>
+						<option value='1'>сглаженный (Montserrat)</option>
+					</select></td></tr>
+				<tr><td class="label">Обновление веб-страниц, мс:</td>
+					<td><input title='0..65535 (0 — не обновлять)' name='cfg_co2_refresh_t' maxlength='5' size='7'></td></tr>
+			</table>
+			<input type='hidden' name='cfg_co2_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
+		</form>
+		<form data-api class="center" data-confirm="Стереть калибровку тача и перезапустить? После старта нажмите на отметки в углах экрана.">
+			<input type='hidden' name='sys_touch_recal' value='1'>
+			<input type='submit' value='Перекалибровать тач (перезапуск)' class="button">
+		</form>
+		</fieldset>
+
+		<fieldset id="g_net"><legend>Сеть</legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Wi-Fi сеть (SSID):</td>
+					<td><input name='net_ssid' maxlength='32' data-maxbytes='32'></td></tr>
+				<tr><td class="label">Пароль:</td>
+					<td><input type='password' name='net_pass' maxlength='64' data-maxbytes='64' placeholder='не менять'></td></tr>
+				<tr><td class="label">Часовой пояс (POSIX TZ):</td>
+					<td><input title='напр. MSK-3, EET-2EEST,M3.5.0/3,M10.5.0/4' name='net_tz' maxlength='47' data-maxbytes='47'></td></tr>
+				<tr><td class="label">NTP-сервер:</td>
+					<td><input name='net_ntp' maxlength='47' data-maxbytes='47'></td></tr>
+				<tr><td class="label">Обновление времени по NTP, мин:</td>
+					<td><input title='1..10080 (неделя). При старте и после «Сохранить» синхронизация — сразу, дальше — с этим периодом' name='net_ntp_period' maxlength='5' size='6'></td></tr>
+				<tr><td class="label">Точка доступа при потере связи через, мин:</td>
+					<td><input title='1..1440: нет связи с роутером дольше — включается точка доступа, пока связь не восстановится' name='net_ap_delay' maxlength='4' size='5'></td></tr>
+				<tr><td class="label">Точка доступа: имя:</td>
+					<td><input title='пусто — не менять (по умолчанию CO2-Hub)' name='net_ap_ssid' maxlength='32' data-maxbytes='32'></td></tr>
+				<tr><td class="label">Точка доступа: пароль:</td>
+					<td><input type='password' name='net_ap_pass' minlength='8' maxlength='64' data-maxbytes='64' placeholder='не менять' title='не короче 8 символов (WPA2); по умолчанию co2sensor; виден на экране в «Система → Сеть Wi-Fi»'></td></tr>
+				<tr><td class="label">Режим сети:</td><td data-var="net_mode"></td></tr>
+				<tr><td class="label">IP:</td><td><span data-var="net_ip"></span>, сигнал <span data-var="net_rssi"></span> dBm</td></tr>
+			</table>
+			<input type='hidden' name='net_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить и переподключиться' class="button"></p>
+		</form>
+		<form data-api class="center" data-confirm="Забыть сеть Wi-Fi (SSID и пароль)? Устройство перейдёт в режим точки доступа.">
+			<input type='hidden' name='net_forget' value='1'>
+			<input type='submit' value='Забыть сеть (только точка доступа)' class="button">
+		</form>
+		<p class="center">Wi-Fi включается и выключается только на экране: «Система → Wi-Fi» (по умолчанию выключен).
+			Сеть не задана — работает только точка доступа (по умолчанию <b>CO2-Hub</b>, пароль <b>co2sensor</b>; текущие — на экране
+			в «Система → Сеть Wi-Fi»), адрес 192.168.4.1. Нет связи с роутером дольше заданного времени — точка доступа
+			включается дополнительно и выключается, как только связь восстановится.</p>
+		</fieldset>
+
+		<fieldset id="g_access"><legend>Пароль настроек</legend>
+		<form data-api>
+			<table class="form">
+				<tr><td class="label">Новый пароль:</td>
+					<td><input type='password' name='net_web_pass' maxlength='32' data-maxbytes='32' placeholder='не менять'></td></tr>
+				<tr><td class="label">Без пароля:</td>
+					<td><label><input type='checkbox' name='net_web_nopass' value='1'> не спрашивать пароль</label></td></tr>
+			</table>
+			<input type='hidden' name='net_web_save' value='1'>
+			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
+		</form>
+		<p class="center">Пароль спрашивается на страницах настроек и при изменении настроек (имя пользователя — любое).
+			Управление с главной страницы (поправка скорости, ночь, коррекция вентилятора) — без пароля.
+			Забыли пароль — на экране «Система → Сброс пароля веба» (станет <b>co2sensor</b>).</p>
+		</fieldset>
+
+		<fieldset id="g_ota"><legend>Обновление прошивки</legend>
+		<p class="center">
+			<input type='file' id='ota_file' accept='.bin'>
+			<input type='button' value='Загрузить и перезапустить' class="button" id="ota_go">
+		</p>
+		<p class="center"><progress id='ota_prog' max='100' value='0' hidden></progress> <span id='ota_msg'></span></p>
+		<p class="center">Файл — <b>firmware_<span data-var="sys_fw_id"></span>_&lt;версия&gt;.bin</b> для этой платы
+			(<span data-var="sys_board"></span>, датчик <span data-var="sys_sensor"></span>), папка
+			<code>Build/<span data-var="sys_fw_board"></span>/</code>. Файл от другой платы или датчика — предупреждение перед записью.
+			Образ проверяется перед переключением; новая прошивка, которая не запустилась, откатывается на прежнюю.</p>
+		</fieldset>
+
+		<fieldset id="g_clock"><legend>Часы</legend>
+		<p class="center">Сейчас: <span data-var="sntp_time" data-fmt="time"></span> (<span data-var="sntp_status"></span>)</p>
+		<p class="center">
+			<input type='datetime-local' id='time_in' step='1'>
+			<input type='button' value='Установить' class="button" id="time_set">
+			<input type='button' value='Время компьютера' class="button" id="time_pc">
+		</p>
+		<p class="center">Без интернета — вручную; работающий NTP при следующей синхронизации поправит часы.</p>
+		</fieldset>
+
+	</div>
+<div id="app_footer"></div>
+<script>
+/* Часы: поле ввода — местное время браузера; на устройство уходит UTC в секундах */
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+function localInput(d) {
+	return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + 'T' +
+		pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
+function setTime(ms) {
+	if (isNaN(ms)) { App.status('Введите дату и время', true); return; }
+	App.send({ sys_time_set: Math.floor(ms / 1000) }, function () { App.load(false); });
+}
+document.getElementById('time_in').value = localInput(new Date());
+document.getElementById('time_set').onclick = function () {
+	setTime(new Date(document.getElementById('time_in').value).getTime());
+};
+document.getElementById('time_pc').onclick = function () { setTime(Date.now()); };
+
+/* Обновление прошивки: файл целиком телом POST /api/ota (XHR — ради хода загрузки); пароль настроек
+   браузер подставит сам (страница уже открыта с ним) */
+document.getElementById('ota_go').onclick = function () {
+	var f = document.getElementById('ota_file').files[0], msg = document.getElementById('ota_msg'),
+		prog = document.getElementById('ota_prog');
+	if (!f) { App.status('Выберите файл прошивки', true); return; }
+	/* Имя от сборки: firmware_<плата>_<датчик>_<версия>.bin (Scripts/copy_firmware.py);
+	   у устройства: sys_fw_id = <плата>_<датчик>, sys_fw_board = <плата> */
+	var v = App.vars, m = f.name.match(/^firmware_(.+)_(\d[^_]*)\.bin$/i), warn = '';
+	var id = m ? m[1].toLowerCase() : '', board = String(v.sys_fw_board).toLowerCase();
+	if (!m)
+		warn = 'Имя файла не похоже на прошивку этого проекта (ожидается firmware_' + v.sys_fw_id + '_<версия>.bin).\n';
+	else if (id == board)
+		warn = 'В имени файла нет датчика CO2 (прежний формат) — проверьте, что прошивка для датчика ' + v.sys_sensor + '.\n';
+	else if (id.indexOf(board + '_') != 0)
+		warn = 'ВНИМАНИЕ: файл для другой платы («' + m[1] + '»), а это устройство — «' + v.sys_fw_id + '» (' + v.sys_board + ').\n' +
+			'Прошивка от другой платы запишется, но экран и выводы будут неверными.\n';
+	else if (id != String(v.sys_fw_id).toLowerCase())
+		warn = 'ВНИМАНИЕ: файл для другого датчика CO2 («' + id.slice(board.length + 1) + '»), а здесь — «' +
+			String(v.sys_fw_id).slice(board.length + 1) + '» (' + v.sys_sensor + ').\n' +
+			'С прошивкой для другого датчика CO2 не будет показаний.\n';
+	var ver = m ? 'Версия файла ' + m[2] + ', сейчас ' + v.sys_ver + '.\n' : '';
+	if (!confirm(warn + ver + 'Записать ' + f.name + ' (' + App.bytes(f.size) + ') и перезапустить устройство?')) return;
+	var x = new XMLHttpRequest();
+	x.open('POST', '/api/ota');
+	x.setRequestHeader('Content-Type', 'application/octet-stream');
+	x.upload.onprogress = function (e) { if (e.lengthComputable) prog.value = Math.round(e.loaded * 100 / e.total); };
+	x.onload = function () {
+		if (x.status == 200) { msg.textContent = 'Записано, перезапуск… страница обновится через 15 с'; setTimeout(function () { location.reload(); }, 15000); }
+		else msg.textContent = 'Ошибка: ' + x.status + ' ' + x.responseText;
+	};
+	x.onerror = function () { msg.textContent = 'Ошибка связи'; };
+	prog.hidden = false;
+	prog.value = 0;
+	msg.textContent = 'Загрузка…';
+	x.send(f);
+};
+
+/* Размер истории: объём для введённых суток и предупреждение, если не поместится в память */
+function histEst() {
+	var v = App.vars, d = Number(document.getElementById('hist_days').value) || 0;
+	var rec = Math.max(100, Math.floor(d * 86400 / (Number(v.cfg_co2_period) || 1)));
+	var t = '≈ ' + App.bytes(rec * v.hist_rec_bytes);
+	if (rec > v.hist_max)
+		t += ' — не поместится, влезет ' + (v.hist_max * v.cfg_co2_period / 86400).toFixed(1) + ' сут';
+	document.getElementById('hist_est').textContent = t;
+}
+document.getElementById('hist_days').oninput = histEst;
+
+var started = false;
+App.start(function (v) {
+	histEst();
+	/* DS18B20 — только если на плате есть свободный вывод (ES3C28P + S8 — нет) */
+	var ds = document.getElementById('opt_ds');
+	ds.disabled = v.temp_ds_ok != 1;
+	if (ds.disabled) ds.textContent = 'DS18B20 (нет свободного вывода)';
+	if (started) return;
+	started = true;
+	App.poll(v.cfg_co2_refresh_t);
+});
+</script>
+</body></html>

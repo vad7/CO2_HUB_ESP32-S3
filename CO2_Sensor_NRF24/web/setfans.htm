@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html><head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Вентиляторы</title>
+	<link rel="stylesheet" href="/style.css">
+	<script src="/app.js"></script>
+</head><body data-groups="cfg,fan">
+<div id="app_menu"></div>
+	<div class="content">
+		<h2 class="title">Настройка вентиляторов</h2>
+		<form data-api>
+			<table class="form">
+				<tr>
+				<td class="label">Вентилятор:</td>
+				<td><select title="fan" id="fan_sel">
+				</select></td>
+				</tr>
+				<tr>
+					<td class="label">Название:</td>
+					<td><input name='cfg_fan_name' maxlength='32' data-maxbytes='32' title='до 32 байт: 32 латинских или 16 русских букв'></td>
+				</tr>
+				<tr>
+					<td class="label">Радиоканал (активный режим):</td>
+					<td><input title='0..125; в пассивном режиме канал общий — «Настройки CO2»' name='cfg_fan_rf_ch' maxlength='4'></td>
+				</tr>
+				<tr>
+					<td class="label">Адрес (младший байт):</td>
+					<td><input title='0x00..0xFF; адрес {LSB, C8, C8} — в обоих режимах' name='cfg_fan_addr_LSB' maxlength='4'></td>
+				</tr>
+				<tr>
+					<td class="label">Пауза между запросами, с (пассивный):</td>
+					<td><input title='0..255; передаётся вентилятору в ответе — через сколько секунд ему запрашивать снова' name='cfg_fan_pause' maxlength='3' size='5'></td>
+				</tr>
+				<tr>
+					<td class="label">Нет связи через, с (пассивный):</td>
+					<td><input title='0..255; вентилятор молчит дольше — статус «нет связи»; 0 — не проверять' name='cfg_fan_timeout' maxlength='3' size='5'></td>
+				</tr>
+				<tr>
+					<td class="label">Скорость мин.:</td>
+					<td><input title='0..6' name='cfg_fan_min' maxlength='4'></td>
+				</tr>
+				<tr>
+					<td class="label">Скорость макс.:</td>
+					<td><input title='0..6' name='cfg_fan_max' maxlength='4'></td>
+				</tr>
+				<tr>
+					<td class="label">Коррекция днём:</td>
+					<td><select name='cfg_fan_override_day'>
+						<option value='0'>нет</option>
+						<option value='1'>=</option>
+						<option value='2'>+</option>
+						<option value='3'>&lt;=</option>
+						<option value='4'>&gt;=</option>
+					</select>&nbsp;&nbsp;<input title='-6..6' name='cfg_fan_day' size='5' maxlength='4'></td>
+				</tr>
+				<tr>
+					<td class="label">Коррекция ночью:</td>
+					<td><select name='cfg_fan_override_night'>
+						<option value='0'>нет</option>
+						<option value='1'>=</option>
+						<option value='2'>+</option>
+						<option value='3'>&lt;=</option>
+						<option value='4'>&gt;=</option>
+					</select>&nbsp;&nbsp;<input title='-6..6' name='cfg_fan_night' size='5' maxlength='4'></td>
+				</tr>
+				<tr>
+					<td class="label">Режим:</td>
+					<td><select name='cfg_fan_flags'>
+						<option value='0'>-</option>
+						<option value='1'>Пропускать</option>
+						<option value='2'>Принудительная скорость</option>
+					</select></td>
+				</tr>
+			</table>
+		<p class="center">
+			<input type='hidden' name='cfg_co2_save_fans' value='1'>
+			<input type='submit' value='Сохранить' class="button">
+		</p>
+		</form>
+	</div>
+<div id="app_footer"></div>
+<script>
+/* Вентилятор выбирается списком; номер хранится в cookie cfg_fan_ и передаётся в /api/vars и /api/set */
+function init(v) {
+	var sel = document.getElementById('fan_sel');
+	if (sel.options.length != v.cfg_co2_fans) {
+		sel.length = 0;
+		for (var i = 0; i < v.cfg_co2_fans; i++) sel.add(new Option(i + 1, i));
+	}
+	sel.value = v.cfg_fan_idx;
+	App.setFan(v.cfg_fan_idx);                           // прошивка могла поправить номер (вне диапазона -> 0)
+	document.getElementsByName('cfg_fan_flags')[0].value = Math.min(v.cfg_fan_flags, 2);   // 3 = оба флага
+}
+document.getElementById('fan_sel').onchange = function () {
+	App.setFan(this.value);
+	App.load(true, init);
+};
+App.start(init);
+</script>
+</body></html>
