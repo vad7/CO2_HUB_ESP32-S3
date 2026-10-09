@@ -62,6 +62,9 @@ HEADER_H, INFO_LINE_H, MARGIN = 26, 22, 4
 FAN_R, FAN_STEP = 8, 18                 # иконка вентилятора 16 px, шаг 18 (ui.cpp FAN_ICON_STEP)
 DIGIT_W, DIGIT_H, SEG_T = 58, 96, 9      # 7-сегментные цифры (Font7 48 px x2)
 DIGITS_FONT = digits_font(ARGS.digits_ttf, DIGIT_H)   # --digits-ttf: большие цифры TTF-шрифтом
+# сглаженный шрифт цифр прошивки (по умолчанию, include/font_digits.h - из этого TTF)
+SMOOTH_TTF = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "work", "fonts",
+                          "Montserrat-SemiBold.ttf")
 
 
 def font(px):
@@ -138,7 +141,7 @@ def temp_right(d, w, cy, t, h, color, left_x):
 BOTTOM_LINE_H, BTN_ROW_H = 44, 48
 
 
-def main_screen(w, h, title, temp, hum, es_buttons=False, td_adjust=False):
+def main_screen(w, h, title, temp, hum, es_buttons=False, td_adjust=False, ttf=None):
     """Главный экран: шапка, цифры CO2 (между шапкой и рядом кнопок ES), нижняя строка (иконки, «+1»,
     температура x2) - видна всегда; ES - ряд кнопок над нижней строкой; TD - метки «+» / «-» режима скорости."""
     im = Image.new("RGB", (w, h), (0, 0, 0))
@@ -151,11 +154,13 @@ def main_screen(w, h, title, temp, hum, es_buttons=False, td_adjust=False):
         d.text((MARGIN, HEADER_H + 11), "1:3 2:4* 3:nRF?", font=F_SMALL, fill=WHITE, anchor="lm")
     co2 = ARGS.co2
     cy = (HEADER_H + 22 + btn_y) // 2 if touch else (HEADER_H + info_y) // 2
-    if DIGITS_FONT:                                  # TTF: высота цифр - DIGIT_H, центр самих цифр - (w/2, cy)
-        f = DIGITS_FONT
+    path = ttf or ARGS.digits_ttf                    # ttf - шрифт этой картинки, иначе --digits-ttf
+    dfont = digits_font(ttf, DIGIT_H) if ttf else DIGITS_FONT
+    if dfont:                                        # TTF: высота цифр - DIGIT_H, центр самих цифр - (w/2, cy)
+        f = dfont
         bx0, by0, bx1, by1 = d.textbbox((0, 0), co2, font=f)
         if bx1 - bx0 > w - 2 * MARGIN:              # не влезает по ширине (широкий шрифт, 4 цифры) - уменьшить
-            f = ImageFont.truetype(ARGS.digits_ttf, int(f.size * (w - 2 * MARGIN) / (bx1 - bx0)))
+            f = ImageFont.truetype(path, int(f.size * (w - 2 * MARGIN) / (bx1 - bx0)))
             bx0, by0, bx1, by1 = d.textbbox((0, 0), co2, font=f)
         d.text((w // 2 - (bx0 + bx1) // 2, cy - (by0 + by1) // 2), co2, font=f, fill=WHITE)
     else:                                            # как на устройстве: 7-сегментные Font7 x2
@@ -186,38 +191,53 @@ def main_screen(w, h, title, temp, hum, es_buttons=False, td_adjust=False):
     return im, title
 
 
+HINT_H = 20                                  # T-Display: строка подсказки (ui.cpp HINT_H)
+# подсказки T-Display - как ui.cpp (drawMenuStatic, drawHistoryStatic)
+HINT_GROUPS = "Кн.2:пред Кн.1:след ДН:выход/вход"
+HINT_ITEMS = "Кн.2:пред Кн.1:след ДН:назад/изм."
+HINT_HISTORY = "Кн.2:<- Кн.1:-> ДН:выход/масштаб"
+
+
+def board_name(h):
+    return "ES3C28P" if h > 200 else "T-Display"
+
+
+def menu_frame(d, w, h, head, btn, hint):
+    """Рамка карточки меню: заголовок; ES - кнопка btn в шапке справа и ряд «< - + >» внизу; TD - подсказка внизу.
+    Возвращает (top, bottom) области карточки."""
+    top = HEADER_H + MARGIN * 2
+    d.text((MARGIN, top // 2), head, font=F_SMALL, fill=CYAN, anchor="lm")
+    if h > 200:
+        d.rounded_rectangle((w - 90 + 2, 2, w - 2, top - 2), 6, fill=NAVY)
+        d.text((w - 45, top // 2), btn, font=F_TEXT, fill=WHITE, anchor="mm")
+        bottom = h - 48
+        for i, t in enumerate(("<", "-", "+", ">")):
+            d.rounded_rectangle((i * 80 + 2, bottom + 2, i * 80 + 78, h - 2), 6, fill=NAVY)
+            d.text((i * 80 + 40, bottom + 24), t, font=F_TEXT, fill=WHITE, anchor="mm")
+    else:
+        bottom = h - HINT_H
+        d.text((MARGIN, bottom + HINT_H // 2), hint, font=F_SMALL, fill=GREY, anchor="lm")
+    return top, bottom
+
+
 def menu_group(w, h):
     im = Image.new("RGB", (w, h), (0, 0, 0))
     d = ImageDraw.Draw(im)
-    top = HEADER_H + MARGIN * 2
-    d.text((MARGIN, top // 2), "Настройки: группа 6/8", font=F_SMALL, fill=CYAN, anchor="lm")
-    d.rounded_rectangle((w - 90 + 2, 2, w - 2, top - 2), 6, fill=NAVY)
-    d.text((w - 45, top // 2), "Выход", font=F_TEXT, fill=WHITE, anchor="mm")
-    bottom = h - 48
+    top, bottom = menu_frame(d, w, h, "Настройки: группа 6/8", "Выход", HINT_GROUPS)
     vt = top + (bottom - top) // 3
-    d.text((w // 2, (top + vt) // 2), "Параметров: 3", font=F_SMALL, fill=GREY, anchor="mm")
+    d.text((w // 2, (top + vt) // 2), "Параметров: 4", font=F_SMALL, fill=GREY, anchor="mm")
     d.text((w // 2, (vt + bottom) // 2), "История и датчики", font=font(26), fill=YELLOW, anchor="mm")
-    for i, t in enumerate(("<", "-", "+", ">")):
-        d.rounded_rectangle((i * 80 + 2, bottom + 2, i * 80 + 78, h - 2), 6, fill=NAVY)
-        d.text((i * 80 + 40, bottom + 24), t, font=F_TEXT, fill=WHITE, anchor="mm")
-    return im, "ES3C28P: меню - карточка группы"
+    return im, board_name(h) + ": меню - карточка группы"
 
 
 def menu_item(w, h):
     im = Image.new("RGB", (w, h), (0, 0, 0))
     d = ImageDraw.Draw(im)
-    top = HEADER_H + MARGIN * 2
-    d.text((MARGIN, top // 2), "История и датчики 2/3", font=F_SMALL, fill=CYAN, anchor="lm")
-    d.rounded_rectangle((w - 90 + 2, 2, w - 2, top - 2), 6, fill=NAVY)
-    d.text((w - 45, top // 2), "Назад", font=F_TEXT, fill=WHITE, anchor="mm")
-    bottom = h - 48
+    top, bottom = menu_frame(d, w, h, "История и датчики 2/4", "Назад", HINT_ITEMS)
     vt = top + (bottom - top) // 3
     d.text((w // 2, (top + vt) // 2), "Датчик температуры", font=F_TEXT, fill=WHITE, anchor="mm")
     d.text((w // 2, (vt + bottom) // 2), "SHT40", font=F_BIG, fill=YELLOW, anchor="mm")
-    for i, t in enumerate(("<", "-", "+", ">")):
-        d.rounded_rectangle((i * 80 + 2, bottom + 2, i * 80 + 78, h - 2), 6, fill=NAVY)
-        d.text((i * 80 + 40, bottom + 24), t, font=F_TEXT, fill=WHITE, anchor="mm")
-    return im, "ES3C28P: меню - пункт группы"
+    return im, board_name(h) + ": меню - пункт группы"
 
 
 def history_chart(w, h):
@@ -226,7 +246,8 @@ def history_chart(w, h):
     im = Image.new("RGB", (w, h), (0, 0, 0))
     d = ImageDraw.Draw(im)
     d.text((MARGIN, HEADER_H // 2), "История CO2  <-> 5 ч  x4", font=F_TEXT, fill=CYAN, anchor="lm")
-    x0, y0, y1 = 44, HEADER_H + MARGIN, h - 48 - 18
+    touch = h > 200
+    x0, y0, y1 = 44, HEADER_H + MARGIN, h - (48 if touch else HINT_H) - 18
     cols = w - MARGIN - x0
     lo, hi = 400, 1000
     for v in range(lo, hi + 1, 200):
@@ -252,23 +273,23 @@ def history_chart(w, h):
     d.line((x0 - 1, y1, x0 + cols, y1), fill=(200, 200, 200))
     for i, xx in enumerate((60, 140, 220, 300)):
         d.text((xx, y1 + 4), ("09:00", "10:00", "11:00", "12:00")[i], font=F_SMALL, fill=(200, 200, 200), anchor="ma")
-    sb = (w - 90) // 4
-    for i, (t, bw) in enumerate((("<", sb), ("-", sb), ("Выход", 90), ("+", sb), (">", w - 3 * sb - 90))):
-        bx = sum((sb, sb, 90, sb)[:i])
-        d.rounded_rectangle((bx + 2, h - 46, bx + bw - 2, h - 2), 6, fill=NAVY)
-        d.text((bx + bw // 2, h - 24), t, font=F_TEXT, fill=WHITE, anchor="mm")
-    return im, "ES3C28P: график истории (CO2 + температура красным)"
+    if touch:
+        sb = (w - 90) // 4
+        for i, (t, bw) in enumerate((("<", sb), ("-", sb), ("Выход", 90), ("+", sb), (">", w - 3 * sb - 90))):
+            bx = sum((sb, sb, 90, sb)[:i])
+            d.rounded_rectangle((bx + 2, h - 46, bx + bw - 2, h - 2), 6, fill=NAVY)
+            d.text((bx + bw // 2, h - 24), t, font=F_TEXT, fill=WHITE, anchor="mm")
+    else:
+        d.text((MARGIN, h - HINT_H // 2), HINT_HISTORY, font=F_SMALL, fill=GREY, anchor="lm")
+    return im, board_name(h) + ": график истории (CO2 + температура красным)"
 
 
-def sys_card_td(lines, title):
-    """Карточка «Состояние системы» на T-Display (320x170): шапка, 6 строк 9x15 по 19 px, подсказка внизу.
+def sys_card(w, h, lines, title):
+    """Карточка «Состояние системы»: шапка, 6 строк 9x15 по 19 px; ES - кнопки меню, TD - подсказка внизу.
     Значок градуса - кружок (в шрифте его нет), в строках отмечен «`»."""
-    w, h = 320, 170
     im = Image.new("RGB", (w, h), (0, 0, 0))
     d = ImageDraw.Draw(im)
-    top = HEADER_H + MARGIN * 2
-    d.text((MARGIN, top // 2), "Система 1/4", font=F_SMALL, fill=CYAN, anchor="lm")
-    bottom = h - 20
+    top, bottom = menu_frame(d, w, h, "Система 1/8", "Назад", HINT_ITEMS)
     y = top + (bottom - top - 6 * 19) // 2
     for i, s in enumerate(lines):
         col = WHITE if i == 0 else YELLOW
@@ -279,9 +300,7 @@ def sys_card_td(lines, title):
                 x += 8
             d.text((x, cy), part, font=F_SMALL, fill=col, anchor="lm")
             x += d.textlength(part, font=F_SMALL)
-    d.line((0, y + 6 * 19, w, y + 6 * 19), fill=(60, 60, 60))
-    d.text((MARGIN, bottom + 10), "Кн.1:след/назад Кн.2:+/-(долго)", font=F_SMALL, fill=GREY, anchor="lm")
-    return im, title
+    return im, board_name(h) + ": " + title
 
 
 # Задачи FreeRTOS для макета (типичный набор Arduino-ESP32 3.x + Wi-Fi + веб):
@@ -319,7 +338,7 @@ def tasks_card(w, h, title, page):
     per = (bottom - top) // TASK_LINE_H - 1
     rows = task_list()
     pages = (len(rows) + per - 1) // per
-    d.text((MARGIN, top // 2), "Система 2/5", font=F_SMALL, fill=CYAN, anchor="lm")
+    d.text((MARGIN, top // 2), "Система 2/8", font=F_SMALL, fill=CYAN, anchor="lm")
 
     def cell(s, col, right, cy, color):
         d.text((MARGIN + col * CHAR_W, cy), s, font=F_SMALL, fill=color, anchor="rm" if right else "lm")
@@ -346,42 +365,54 @@ def tasks_card(w, h, title, page):
             d.rounded_rectangle((i * bw + 2, bottom + 2, (i + 1) * bw - 3, h - 3), 6, fill=NAVY)
             d.text(((i + 0.5) * bw, bottom + 24), s, font=F_TEXT, fill=WHITE, anchor="mm")
     else:
-        d.text((MARGIN, bottom + 10), "Кн.1:стр.+ Кн.2:стр.- ДН Кн.2:назад", font=F_SMALL, fill=GREEN, anchor="lm")
+        d.text((MARGIN, bottom + 10), "Кн.2:стр.- Кн.1:стр.+ ДН Кн.2:назад", font=F_SMALL, fill=GREEN, anchor="lm")
     return im, title
 
 
 def main():
-    # порядок на листе (2 в ряд): главные экраны, график истории, меню, карточки «Система», задачи FreeRTOS
-    shots = [main_screen(320, 240, "ES3C28P: главный экран", ARGS.temp, ARGS.hum),
-             main_screen(320, 170, "T-Display-S3: главный экран", ARGS.temp, ARGS.hum),
-             main_screen(320, 240, "ES3C28P: после касания - кнопки", ARGS.temp, ARGS.hum, es_buttons=True),
-             main_screen(320, 170, "T-Display-S3: режим скорости (КН Кн.2)", ARGS.temp, ARGS.hum, td_adjust=True),
-             main_screen(320, 170, "T-Display-S3, DS18B20 (без влажности)", ARGS.temp, ""),
-             history_chart(320, 240),
-             menu_group(320, 240), menu_item(320, 240),
-             sys_card_td(["Состояние системы", "CPU: 3%, 2%, 45.3`C", "Свободно RAM 180 Кб, PSRAM 7.6 Мб",
-                          "Буфер: 7.0 сут (30240), 236 Кб", "Занято: 4.6 сут (19872)", "CO2 116 Кб, t` 39 Кб"],
-                         "T-Display: Система - обычный случай"),
-             sys_card_td(["Состояние системы", "CPU: 100%, 100%, 105.3`C", "Свободно RAM 210 Кб, PSRAM 7.9 Мб",
-                          "Буфер: 365.0 сут (1017290), 8.1 Мб", "Занято: 365.0 сут (1017290)", "CO2 6.1 Мб, t` 2.0 Мб"],
-                         "T-Display: Система - худший случай по длине"),
-             tasks_card(320, 240, "ES3C28P: Система -> Задачи FreeRTOS («-» / «+» - страницы)", 0),
-             tasks_card(320, 170, "T-Display: Задачи FreeRTOS (ДН Кн.1 - войти, КН - страницы)", 0),
-             tasks_card(320, 240, "ES3C28P: Задачи, стр. 2", 1),
-             tasks_card(320, 170, "T-Display: Задачи, стр. 2", 1)]
+    # строки листа: слева - ES3C28P, справа - T-Display (None - картинки для этой платы нет, ячейка пустая).
+    # Порядок: главные экраны (7-сегментный, сглаженный шрифт), график истории, меню, «Система», задачи FreeRTOS.
+    t, hm = ARGS.temp, ARGS.hum
+    smooth = SMOOTH_TTF if os.path.exists(SMOOTH_TTF) else None
+    rows = [(main_screen(320, 240, "ES3C28P: главный экран, цифры 7-сегментные", t, hm),
+             main_screen(320, 170, "T-Display-S3: главный экран, цифры 7-сегментные", t, hm))]
+    if smooth:
+        rows.append((main_screen(320, 240, "ES3C28P: главный экран, цифры сглаженные (Montserrat)", t, hm, ttf=smooth),
+                     main_screen(320, 170, "T-Display-S3: главный экран, сглаженные (Montserrat)", t, hm, ttf=smooth)))
+    sys_n = ["Состояние системы", "CPU: 3%, 2%, 45.3`C", "Свободно RAM 180 Кб, PSRAM 7.6 Мб",
+           "Буфер: 7.0 сут (30240), 236 Кб", "Занято: 4.6 сут (19872)", "CO2 116 Кб, t` 39 Кб"]
+    sys_w = ["Состояние системы", "CPU: 100%, 100%, 105.3`C", "Свободно RAM 210 Кб, PSRAM 7.9 Мб",
+           "Буфер: 365.0 сут (1017290), 8.1 Мб", "Занято: 365.0 сут (1017290)", "CO2 6.1 Мб, t` 2.0 Мб"]
+    rows += [(main_screen(320, 240, "ES3C28P: после касания - кнопки", t, hm, es_buttons=True),
+              main_screen(320, 170, "T-Display-S3: режим скорости (КН Кн.2)", t, hm, td_adjust=True)),
+             (main_screen(320, 240, "ES3C28P, DS18B20 (без влажности)", t, ""),
+              main_screen(320, 170, "T-Display-S3, DS18B20 (без влажности)", t, "")),
+             (history_chart(320, 240), history_chart(320, 170)),
+             (menu_group(320, 240), menu_group(320, 170)),
+             (menu_item(320, 240), menu_item(320, 170)),
+             (sys_card(320, 240, sys_n, "Система - обычный случай"), sys_card(320, 170, sys_n, "Система - обычный случай")),
+             (sys_card(320, 240, sys_w, "Система - худший случай по длине"),
+              sys_card(320, 170, sys_w, "Система - худший случай по длине")),
+             (tasks_card(320, 240, "ES3C28P: Система -> Задачи FreeRTOS («-» / «+» - страницы)", 0),
+              tasks_card(320, 170, "T-Display: Задачи FreeRTOS (ДН Кн.1 - войти, КН - страницы)", 0)),
+             (tasks_card(320, 240, "ES3C28P: Задачи, стр. 2", 1),
+              tasks_card(320, 170, "T-Display: Задачи, стр. 2", 1))]
     pad, cap = 14, 22
     cols = 2
     cw, ch = 320 * SCALE, 240 * SCALE
-    rows = (len(shots) + cols - 1) // cols
-    sheet = Image.new("RGB", (cols * (cw + pad) + pad, rows * (ch + cap + pad) + pad), (235, 238, 242))
+    sheet = Image.new("RGB", (cols * (cw + pad) + pad, len(rows) * (ch + cap + pad) + pad), (235, 238, 242))
     ds = ImageDraw.Draw(sheet)
-    for i, (im, title) in enumerate(shots):
-        x = pad + (i % cols) * (cw + pad)
-        y = pad + (i // cols) * (ch + cap + pad)
-        ds.text((x, y), title, font=font(18), fill=(30, 30, 30))
-        big = im.resize((im.width * SCALE, im.height * SCALE), Image.NEAREST)
-        sheet.paste(big, (x, y + cap))
-        ds.rectangle((x - 1, y + cap - 1, x + big.width, y + cap + big.height), outline=(90, 90, 90))
+    for r, row in enumerate(rows):
+        for c, shot in enumerate(row):
+            if shot is None:
+                continue
+            im, title = shot
+            x = pad + c * (cw + pad)
+            y = pad + r * (ch + cap + pad)
+            ds.text((x, y), title, font=font(18), fill=(30, 30, 30))
+            big = im.resize((im.width * SCALE, im.height * SCALE), Image.NEAREST)
+            sheet.paste(big, (x, y + cap))
+            ds.rectangle((x - 1, y + cap - 1, x + big.width, y + cap + big.height), outline=(90, 90, 90))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     sheet.save(OUT)
     print(OUT)

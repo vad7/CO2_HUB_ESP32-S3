@@ -827,7 +827,7 @@ static void drawHistoryStatic()
     drawButton(2 * s + EXIT_BTN_W, y, s,          BTN_ROW_H, "+");
     drawButton(3 * s + EXIT_BTN_W, y, lcd.width() - 3 * s - EXIT_BTN_W, BTN_ROW_H, ">");
 #else
-    drawLine("Кн.1:нов Кн.2:стар ДН:масшт/выход", lcd.height() - HINT_H, HINT_H, FONT_SMALL, COL_DIM);
+    drawLine("Кн.2:<- Кн.1:-> ДН:выход/масштаб", lcd.height() - HINT_H, HINT_H, FONT_SMALL, COL_DIM);
 #endif
 }
 
@@ -1421,11 +1421,11 @@ static void drawMenuStatic()
     drawButton(w4 * 2,     y, w4, BTN_ROW_H, "+");
     drawButton(w4 * 3,     y, lcd.width() - w4 * 3, BTN_ROW_H, ">");
 #else
-    // ДН: первое - Boot, второе - IO14 (порядок как у КН)
-    const char* hint = !s_inGroup ? "Кн.1:след Кн.2:пред ДН:вход/выход"
-                     : !s_inItem  ? "Кн.1:след Кн.2:пред ДН:изм./назад"
-                     : curItem() == Item::Tasks ? "Кн.1:стр.+ Кн.2:стр.- ДН Кн.2:назад"
-                                  : "Кн.1:+  Кн.2:-  ДН Кн.2:готово";
+    // Кн.2 слева, Кн.1 справа - как кнопки ES; у «ДН:а/б» - сначала Кн.2 (IO14), потом Кн.1 (Boot)
+    const char* hint = !s_inGroup ? "Кн.2:пред Кн.1:след ДН:выход/вход"
+                     : !s_inItem  ? "Кн.2:пред Кн.1:след ДН:назад/изм."
+                     : curItem() == Item::Tasks ? "Кн.2:стр.- Кн.1:стр.+ ДН Кн.2:назад"
+                                  : "Кн.2:-  Кн.1:+  ДН Кн.2:готово";
     drawLine(hint, lcd.height() - HINT_H, HINT_H, FONT_SMALL, s_inItem ? COL_OK : COL_DIM);
 #endif
 }
