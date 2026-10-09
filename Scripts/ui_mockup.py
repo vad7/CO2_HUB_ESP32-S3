@@ -351,22 +351,24 @@ def tasks_card(w, h, title, page):
 
 
 def main():
-    shots = [tasks_card(320, 240, "ES3C28P: Система -> Задачи FreeRTOS («-» / «+» - страницы)", 0),
-             tasks_card(320, 170, "T-Display: Задачи FreeRTOS (ДН Кн.1 - войти, КН - страницы)", 0),
-             tasks_card(320, 240, "ES3C28P: Задачи, стр. 2", 1),
-             tasks_card(320, 170, "T-Display: Задачи, стр. 2", 1),sys_card_td(["Состояние системы", "CPU: 3%, 2%, 45.3`C", "Свободно RAM 180 Кб, PSRAM 7.6 Мб",
+    # порядок на листе (2 в ряд): главные экраны, график истории, меню, карточки «Система», задачи FreeRTOS
+    shots = [main_screen(320, 240, "ES3C28P: главный экран", ARGS.temp, ARGS.hum),
+             main_screen(320, 170, "T-Display-S3: главный экран", ARGS.temp, ARGS.hum),
+             main_screen(320, 240, "ES3C28P: после касания - кнопки", ARGS.temp, ARGS.hum, es_buttons=True),
+             main_screen(320, 170, "T-Display-S3: режим скорости (КН Кн.2)", ARGS.temp, ARGS.hum, td_adjust=True),
+             main_screen(320, 170, "T-Display-S3, DS18B20 (без влажности)", ARGS.temp, ""),
+             history_chart(320, 240),
+             menu_group(320, 240), menu_item(320, 240),
+             sys_card_td(["Состояние системы", "CPU: 3%, 2%, 45.3`C", "Свободно RAM 180 Кб, PSRAM 7.6 Мб",
                           "Буфер: 7.0 сут (30240), 236 Кб", "Занято: 4.6 сут (19872)", "CO2 116 Кб, t` 39 Кб"],
                          "T-Display: Система - обычный случай"),
              sys_card_td(["Состояние системы", "CPU: 100%, 100%, 105.3`C", "Свободно RAM 210 Кб, PSRAM 7.9 Мб",
                           "Буфер: 365.0 сут (1017290), 8.1 Мб", "Занято: 365.0 сут (1017290)", "CO2 6.1 Мб, t` 2.0 Мб"],
                          "T-Display: Система - худший случай по длине"),
-             history_chart(320, 240),
-             main_screen(320, 240, "ES3C28P: главный экран", ARGS.temp, ARGS.hum),
-             main_screen(320, 240, "ES3C28P: после касания - кнопки", ARGS.temp, ARGS.hum, es_buttons=True),
-             main_screen(320, 170, "T-Display-S3: главный экран", ARGS.temp, ARGS.hum),
-             main_screen(320, 170, "T-Display-S3: режим скорости (КН Кн.2)", ARGS.temp, ARGS.hum, td_adjust=True),
-             main_screen(320, 170, "T-Display-S3, DS18B20 (без влажности)", ARGS.temp, ""),
-             menu_group(320, 240), menu_item(320, 240)]
+             tasks_card(320, 240, "ES3C28P: Система -> Задачи FreeRTOS («-» / «+» - страницы)", 0),
+             tasks_card(320, 170, "T-Display: Задачи FreeRTOS (ДН Кн.1 - войти, КН - страницы)", 0),
+             tasks_card(320, 240, "ES3C28P: Задачи, стр. 2", 1),
+             tasks_card(320, 170, "T-Display: Задачи, стр. 2", 1)]
     pad, cap = 14, 22
     cols = 2
     cw, ch = 320 * SCALE, 240 * SCALE
