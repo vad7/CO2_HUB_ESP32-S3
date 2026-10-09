@@ -1,10 +1,10 @@
-// history.cpp — кольцевые буферы истории CO2 и температуры (параллельные: один индекс — одно время).
+// history.cpp - кольцевые буферы истории CO2 и температуры (параллельные: один индекс - одно время).
 // Память выделяется при старте и при смене срока / периода (configure, история очищается); буфер
-// температуры — при выборе датчика температуры (setTemp), для старых записей — «нет данных».
+// температуры - при выборе датчика температуры (setTemp), для старых записей - «нет данных».
 // Размер ограничивается свободной памятью: самый большой свободный блок PSRAM минус HISTORY_PSRAM_RESERVE
-// (без PSRAM — внутренней RAM минус HISTORY_RAM_RESERVE), с расчётом на оба буфера (8 байт на запись),
+// (без PSRAM - внутренней RAM минус HISTORY_RAM_RESERVE), с расчётом на оба буфера (8 байт на запись),
 // чтобы буфер температуры поместился и позже.
-// Мин / макс температуры по всему буферу — с обновлением при записи; пересчёт всего буфера только когда
+// Мин / макс температуры по всему буферу - с обновлением при записи; пересчёт всего буфера только когда
 // затирается запись с текущим минимумом или максимумом.
 #include "history.h"
 #include "config.h"
@@ -65,7 +65,7 @@ bool configure(uint16_t days, uint16_t periodS, bool withTemp)
     if (periodS == 0) periodS = 1;
     s_wanted = (uint32_t)((uint64_t)days * S_PER_DAY_CFG / periodS);
     if (s_wanted < HISTORY_RECORDS_MIN) s_wanted = HISTORY_RECORDS_MIN;
-    freeAll();                                  // сначала освободить — тогда весь объём доступен
+    freeAll();                                  // сначала освободить - тогда весь объём доступен
     s_psram = havePsram();
     uint32_t n = s_wanted;
     const uint32_t fit = (uint32_t)(freeForHistory() / REC_BYTES_BOTH);
@@ -93,7 +93,7 @@ void setTemp(bool on)
     }
     s_temp = (int16_t*)heap_caps_malloc((size_t)s_cap * HISTORY_TEMP_REC_BYTES, caps());
     if (!s_temp) { Serial.println("История: нет памяти под буфер температуры"); return; }
-    fillNoTemp();                               // старые записи CO2 — без температуры
+    fillNoTemp();                               // старые записи CO2 - без температуры
     s_tempCnt = 0;
     s_rangeDirty = true;
 }
@@ -102,7 +102,7 @@ void add(uint16_t co2, int16_t tempTenths, uint32_t uptimeS)
 {
     if (s_buf == nullptr) return;
     if (s_temp) {
-        const int16_t old = s_temp[s_head];     // затираемая запись (при неполном буфере — «нет данных»)
+        const int16_t old = s_temp[s_head];     // затираемая запись (при неполном буфере - «нет данных»)
         if (old != HISTORY_NO_TEMP) {
             s_tempCnt--;
             if (old == s_tmin || old == s_tmax) s_rangeDirty = true;

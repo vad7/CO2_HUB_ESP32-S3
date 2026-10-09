@@ -1,9 +1,9 @@
 # PlatformIO extra_script (post): после сборки копирует прошивку в Build/<env>/
 #   firmware_<плата>_<датчик>_<версия>.bin (для OTA и USB), bootloader.bin, partitions.bin + flash_cmd.txt.
-#   Плата и датчик — из самого образа: строка FW_ID_MARKER FW_ID («CO2HUB_FWID=es3c28p_k22», config.h,
-#   выводится в Serial при старте) — совпадает с тем, что собрано, как бы ни был выбран датчик
-#   (config.h или -DCO2_SENSOR); версия — FW_VERSION из config.h.
-#   Прежние firmware*.bin в папке удаляются — там всегда одна, последняя прошивка.
+#   Плата и датчик - из самого образа: строка FW_ID_MARKER FW_ID («CO2HUB_FWID=es3c28p_k22», config.h,
+#   выводится в Serial при старте) - совпадает с тем, что собрано, как бы ни был выбран датчик
+#   (config.h или -DCO2_SENSOR); версия - FW_VERSION из config.h.
+#   Прежние firmware*.bin в папке удаляются - там всегда одна, последняя прошивка.
 # Подключён в platformio.ini:  extra_scripts = post:Scripts/copy_firmware.py
 import glob
 import os
@@ -42,7 +42,7 @@ def copy_firmware(source, target, env):
     app_src = os.path.join(build_dir, "firmware.bin")
     ident = fw_id(app_src, board)
     if ident == board:
-        print("ВНИМАНИЕ: в образе нет метки %s — датчик в имени файла не указан" % FW_ID_MARKER.decode())
+        print("ВНИМАНИЕ: в образе нет метки %s - датчик в имени файла не указан" % FW_ID_MARKER.decode())
     app_name = "firmware_%s_%s.bin" % (ident, fw_version(project_dir))
     lines = []
     for name, addr in FLASH_LAYOUT:

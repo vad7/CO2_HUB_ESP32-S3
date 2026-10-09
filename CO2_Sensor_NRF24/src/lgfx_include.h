@@ -1,4 +1,4 @@
-// lgfx_include.h — подключение LovyanGFX и шрифтов U8g2 без предупреждений -Wstrict-aliasing.
+// lgfx_include.h - подключение LovyanGFX и шрифтов U8g2 без предупреждений -Wstrict-aliasing.
 // Флаг -Wstrict-aliasing=1 включён для кода проекта (platformio.ini: src_build_flags), а заголовки
 // библиотек читают PROGMEM через приведение указателей. Подключать библиотеки только отсюда.
 #pragma once

@@ -1,20 +1,20 @@
-// ui.cpp — экран и настройка (параметры хаба, см. hub_config.h).
+// ui.cpp - экран и настройка (параметры хаба, см. hub_config.h).
 // Главный экран: CO2 крупными цифрами (цвета как на веб-странице хаба), время, ночь,
 // скорость, поправка, статус вентиляторов.
 // Экран горизонтальный (LCD_ROTATION = 1).
 // Главный экран: шапка; цифры CO2; нижняя строка (иконки скорости, поправка «+1», справа температура и
-//   влажность x2) — видна всегда. Без действий UI_MAIN_BUTTONS_MS активная панель скрывается.
-//   ES (тач): касание — кнопки «+», «Меню», [график], «-» над нижней строкой и «Выход» сверху справа (как в меню).
-//   TD (КН — коротко, ДН — долго; Boot сверху, IO14 снизу): ДН Boot — меню, КН Boot — график,
-//     КН IO14 — режим скорости (метки «+» у Boot и «-» у IO14): КН Boot «+», КН IO14 «-», ДН IO14 — выход.
-// График истории CO2: ES — свайп, «<» «>», «-» «+» масштаб, «Выход»;
-//   TD — КН IO14 к старым, КН Boot к новым, ДН Boot масштаб, ДН IO14 выход. UI_HISTORY_TIMEOUT_MS — выход.
-// Настройки — по группам (MENU_GROUPS): карточка группы -> карточки «параметр — значение».
-//   ES: < > — листание, «+» или касание карточки — открыть группу, в группе - + меняют значение сразу,
-//     «Назад» / «Выход»; BOOT: КН — следующий, ДН — назад / выход.
-//   TD: три уровня — группы, пункты, редактирование пункта. КН Boot — след. / «+», КН IO14 — пред. / «-»,
-//     ДН Boot — войти (в группу / в редактирование), ДН IO14 — назад (из пункта / группы / меню).
-// Выход из меню — также UI_SETUP_TIMEOUT_MS (в группе «Система» — UI_SYSTEM_TIMEOUT_MS); изменения сохраняются в NVS при выходе.
+//   влажность x2) - видна всегда. Без действий UI_MAIN_BUTTONS_MS активная панель скрывается.
+//   ES (тач): касание - кнопки «+», «Меню», [график], «-» над нижней строкой и «Выход» сверху справа (как в меню).
+//   TD (КН - коротко, ДН - долго; Boot сверху, IO14 снизу): ДН Boot - меню, КН Boot - график,
+//     КН IO14 - режим скорости (метки «+» у Boot и «-» у IO14): КН Boot «+», КН IO14 «-», ДН IO14 - выход.
+// График истории CO2: ES - свайп, «<» «>», «-» «+» масштаб, «Выход»;
+//   TD - КН IO14 к старым, КН Boot к новым, ДН Boot масштаб, ДН IO14 выход. UI_HISTORY_TIMEOUT_MS - выход.
+// Настройки - по группам (MENU_GROUPS): карточка группы -> карточки «параметр - значение».
+//   ES: < > - листание, «+» или касание карточки - открыть группу, в группе - + меняют значение сразу,
+//     «Назад» / «Выход»; BOOT: КН - следующий, ДН - назад / выход.
+//   TD: три уровня - группы, пункты, редактирование пункта. КН Boot - след. / «+», КН IO14 - пред. / «-»,
+//     ДН Boot - войти (в группу / в редактирование), ДН IO14 - назад (из пункта / группы / меню).
+// Выход из меню - также UI_SETUP_TIMEOUT_MS (в группе «Система» - UI_SYSTEM_TIMEOUT_MS); изменения сохраняются в NVS при выходе.
 // Ui::update() вызывается под Cfg::lock().
 #include "ui.h"
 #include <Arduino.h>
@@ -36,26 +36,26 @@ static LGFX lcd;
 namespace Ui {
 
 // ---------------- Оформление ----------------
-// Кириллица — шрифты U8g2 (в японских шрифтах IPA кириллица полноширинная: «В ы х о д»)
+// Кириллица - шрифты U8g2 (в японских шрифтах IPA кириллица полноширинная: «В ы х о д»)
 static const lgfx::U8g2font s_fontSmall(u8g2_font_9x15_t_cyrillic);    // 9x15
 static const lgfx::U8g2font s_fontText (u8g2_font_10x20_t_cyrillic);   // 10x20
 static const lgfx::U8g2font s_fontValue(u8g2_font_inr38_t_cyrillic);   // Inconsolata 38 px
-static const lgfx::U8g2font s_fontValueMid(u8g2_font_inr24_t_cyrillic); // Inconsolata 24 px — если 38 не влезает
+static const lgfx::U8g2font s_fontValueMid(u8g2_font_inr24_t_cyrillic); // Inconsolata 24 px - если 38 не влезает
 static const lgfx::IFont* const FONT_SMALL  = &s_fontSmall;
 static const lgfx::IFont* const FONT_TEXT   = &s_fontText;
-// Шрифты по убыванию — для подбора, чтобы значение меню влезло по ширине
+// Шрифты по убыванию - для подбора, чтобы значение меню влезло по ширине
 static const lgfx::IFont* const VALUE_FONTS[] = { &s_fontValue, &s_fontValueMid, &s_fontText, &s_fontSmall };
 static const lgfx::IFont* const LABEL_FONTS[] = { &s_fontText, &s_fontSmall };
 static const lgfx::IFont* const FONT_DIGITS = &lgfx::fonts::Font7;   // 7-сегментные цифры 48 px
 
 constexpr uint8_t  DIGITS_SCALE   = 2;     // 48 px * 2 = 96 px
-constexpr int16_t  DIGITS_BAND_H  = 96;    // полоса крупных цифр: Font7 x2; сглаженные (font_digits.h) — по её центру
+constexpr int16_t  DIGITS_BAND_H  = 96;    // полоса крупных цифр: Font7 x2; сглаженные (font_digits.h) - по её центру
 constexpr int16_t  DIGITS_LINE_MAX = LCD_WIDTH > LCD_HEIGHT ? LCD_WIDTH : LCD_HEIGHT;   // буфер строки: ширина в альбомной ориентации
 constexpr int16_t  HEADER_H       = 26;
 constexpr int16_t  INFO_LINE_H    = 22;
 constexpr int16_t  BOTTOM_LINE_H  = 44;    // нижняя строка главного экрана: вентиляторы, поправка, температура x2
 constexpr uint8_t  TEMP_TEXT_SCALE = 2;    // температура и влажность на главном экране: шрифт 10x20 x2
-constexpr uint8_t  MAIN_BTN_COUNT = 4;     // ES: «+», «Меню», [график], «-» (ряд над нижней строкой; «Выход» — сверху справа)
+constexpr uint8_t  MAIN_BTN_COUNT = 4;     // ES: «+», «Меню», [график], «-» (ряд над нижней строкой; «Выход» - сверху справа)
 constexpr int16_t  ADJ_MARK_W     = 22;    // TD, режим скорости: метки «+» (у Boot) и «-» (у IO14) у левого края
 constexpr int16_t  ADJ_MARK_H     = 28;
 constexpr int16_t  BTN_ROW_H      = HAS_TOUCH ? 48 : 0;
@@ -69,7 +69,7 @@ constexpr int16_t  FAN_BLADE_DEG  = 50;    // ширина лопасти, гр�
 constexpr int16_t  FAN_BLADES_DEG = 120;   // шаг лопастей (3 лопасти)
 constexpr int16_t  CHART_ICON_W   = 28;    // иконка графика
 constexpr int16_t  CHART_ICON_H   = 22;
-constexpr int16_t  FAN_ICON_STEP  = 2 * FAN_ICON_R + 2;   // шаг иконок скорости в строке (промежуток 2 px: 6 иконок — 108 px)
+constexpr int16_t  FAN_ICON_STEP  = 2 * FAN_ICON_R + 2;   // шаг иконок скорости в строке (промежуток 2 px: 6 иконок - 108 px)
 constexpr int16_t  ARROW_W        = 22;    // стрелка «↔» в заголовке графика
 constexpr int16_t  ARROW_HEAD     = 5;
 constexpr int16_t  HDR_GAP        = 8;     // промежуток между частями заголовка графика
@@ -78,15 +78,15 @@ constexpr int16_t  STATUS_ICON_H  = 12;
 constexpr int16_t  NET_LINE_H     = INFO_LINE_H;   // строка карточки «Сеть Wi-Fi»
 constexpr uint8_t  SYS_LINES      = 6;     // карточка «Состояние системы»: строк (с названием)
 constexpr int16_t  SYS_LINE_H     = 19;    //   высота строки (9x15)
-constexpr size_t   SYS_LINE_BYTES = 64;    //   буфер строки: 34 символа на экране, кириллица — 2 байта
-constexpr int16_t  TASK_LINE_H    = 15;    // карточка «Задачи FreeRTOS»: строка 9x15 (ES — заголовок + 9 задач, TD — + 6)
-// Колонки таблицы задач, в знаках моноширинного 9x15 (34 знака на строку): имя 0..11, состояние с 13,
-// правые края чисел — приоритет 19, стек 25, «итог» 30; страница «1/3» — справа в строке заголовка
+constexpr size_t   SYS_LINE_BYTES = 64;    //   буфер строки: 34 символа на экране, кириллица - 2 байта
+constexpr int16_t  TASK_LINE_H    = 15;    // карточка «Задачи FreeRTOS»: строка 9x15 (ES - заголовок + 9 задач, TD - + 6)
+// Колонки таблицы задач, в знаках моноширинного 9x15 (34 знака на строку): имя 0..11, состояние (1 буква) - 13,
+// правые края чисел (текст кончается перед колонкой) - приоритет 17, стек 23, «Итог» 29; страница «1/3» - справа
 constexpr uint8_t  TASK_NAME_COLS  = 12;
 constexpr uint8_t  TASK_COL_STATE  = 13;
-constexpr uint8_t  TASK_COL_PRIO_E = 19;
-constexpr uint8_t  TASK_COL_STACK_E = 25;
-constexpr uint8_t  TASK_COL_SHARE_E = 30;
+constexpr uint8_t  TASK_COL_PRIO_E = 17;
+constexpr uint8_t  TASK_COL_STACK_E = 23;
+constexpr uint8_t  TASK_COL_SHARE_E = 29;
 constexpr uint8_t  TENTHS_PER_PCT  = 10;
 constexpr size_t   INFO_LINE_BYTES = 96;   // строка карточек «Сеть Wi-Fi», «О программе» (пароль AP до 64 байт + подпись)
 constexpr int16_t  DEG_R          = 2;     // значок градуса температуры: радиус
@@ -106,13 +106,13 @@ constexpr uint32_t S_PER_MIN      = 60;
 constexpr uint32_t S_PER_HOUR     = 3600;
 constexpr uint32_t S_PER_DAY      = 86400;
 // Размер истории в меню (записей)
-// Размер истории в меню, сутки (в вебе — любое число HISTORY_DAYS_MIN..MAX)
+// Размер истории в меню, сутки (в вебе - любое число HISTORY_DAYS_MIN..MAX)
 static constexpr uint16_t HISTORY_DAYS_STEPS[] = { 1, 2, 3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180, 270, 365 };
 constexpr uint8_t HISTORY_DAYS_STEPS_COUNT = sizeof(HISTORY_DAYS_STEPS) / sizeof(HISTORY_DAYS_STEPS[0]);
 static_assert(HISTORY_DAYS_STEPS[0] >= HISTORY_DAYS_MIN && HISTORY_DAYS_STEPS[HISTORY_DAYS_STEPS_COUNT - 1] <= HISTORY_DAYS_MAX, "Сроки истории вне диапазона");
 constexpr uint32_t BYTES_PER_KB = 1024;
 constexpr uint32_t BYTES_PER_MB = 1024 * 1024;
-// График истории: записей на колонку (пиксель) — масштаб
+// График истории: записей на колонку (пиксель) - масштаб
 static const uint16_t HIST_SCALES[] = { 1, 2, 4, 8, 16, 32, 64, 128 };
 constexpr uint8_t  HIST_SCALES_COUNT = sizeof(HIST_SCALES) / sizeof(HIST_SCALES[0]);
 constexpr uint8_t  HIST_SCALE_DEF    = 2;     // 4 записи на пиксель: ~5 ч при 16 с
@@ -129,7 +129,7 @@ static const uint16_t HIST_X_STEPS_MIN[] = { 1, 2, 5, 10, 15, 30, 60, 120, 180, 
 constexpr uint8_t  HIST_X_MAX_TICKS  = 5;
 constexpr int16_t  HIST_TICK_LEN     = 3;     // засечки осей, px
 constexpr int16_t  HIST_LABEL_GAP    = 6;     // минимальный промежуток между подписями времени
-constexpr int16_t  HIST_TAP_MAX_PX   = 8;     // касание без сдвига больше этого — выбор точки (курсор)
+constexpr int16_t  HIST_TAP_MAX_PX   = 8;     // касание без сдвига больше этого - выбор точки (курсор)
 constexpr int16_t  HIST_CURSOR_R     = 3;     // точка курсора на кривой
 constexpr int16_t  HIST_TIP_PAD      = 3;     // поля подсказки курсора
 constexpr int16_t  HIST_T_MIN_SPAN   = 10;    // минимальный диапазон шкалы температуры, 0.1 °C
@@ -143,14 +143,14 @@ constexpr uint16_t COL_ORANGE  = TFT_ORANGE;
 constexpr uint16_t COL_ERR     = TFT_RED;
 constexpr uint16_t COL_BTN     = TFT_NAVY;
 constexpr uint16_t COL_HEADER  = TFT_CYAN;
-constexpr uint16_t COL_AREA    = 0x4416;      // steelblue (70,130,180) — как график веб-страницы
+constexpr uint16_t COL_AREA    = 0x4416;      // steelblue (70,130,180) - как график веб-страницы
 constexpr uint16_t COL_AREA_TOP = TFT_SKYBLUE;
 constexpr uint16_t COL_GRID    = 0x2104;      // тёмно-серый
 constexpr uint16_t COL_AXIS    = TFT_LIGHTGREY;   // оси графика и подписи
 
 // ---------------- Ввод ----------------
-// Enter — TD: «войти глубже» (группа -> пункт -> редактирование); Hide — ES: «Выход» панели главного экрана;
-// Adjust — TD: режим скорости на главном экране
+// Enter - TD: «войти глубже» (группа -> пункт -> редактирование); Hide - ES: «Выход» панели главного экрана;
+// Adjust - TD: режим скорости на главном экране
 enum class Key : uint8_t { None, Prev, Next, Dec, Inc, Menu, Exit, History, ShowButtons, Enter, Hide, Adjust };
 enum class BtnEvent : uint8_t { None, Short, Long };
 enum class Screen : uint8_t { Main, Menu, History };
@@ -170,7 +170,7 @@ static Button s_btnB = { BTN_PIN_B, false, false, false, 0, 0 };
 struct TouchState {
     bool down; Key key; uint32_t downTime; uint32_t lastRepeat; uint32_t lastPoll;
     bool drag; int32_t lastX; uint32_t lastDragDraw;   // свайп по графику
-    int32_t startX; bool moved;                         // касание графика без сдвига — курсор
+    int32_t startX; bool moved;                         // касание графика без сдвига - курсор
     bool repeatOk;                                      // автоповтор удержанием (решается при нажатии)
 };
 static TouchState s_touch = { false, Key::None, 0, 0, 0, false, 0, 0, 0, false, false };
@@ -183,11 +183,11 @@ enum class Item : uint8_t {
     NumberFans, Threshold1, Threshold2, Threshold3, Threshold4, Threshold5, Threshold6, SpeedDelta,
     NightStart, NightEnd, NightStartWd, NightEndWd, NightMax, BrightDay, BrightNight, TransmitPeriod, HistoryDays,
     RadioMode, PassiveChannel, NetInfo, RadioInfo, TouchCal, FactoryReset, About, TempPeriod, TempSensorType, SysState,
-    DigitsFont, Tasks, WifiMode, WebPassReset, Debug,
+    DigitsFont, Tasks, WifiMode, WebPassReset, Debug, Co2Poll,
     Count
 };
 
-// Группы меню (порядок пунктов внутри группы — порядок показа)
+// Группы меню (порядок пунктов внутри группы - порядок показа)
 struct MenuGroup { const char* name; const Item* items; uint8_t count; };
 static const Item G_CONTROL[] = { Item::GlobalOverride, Item::Night };
 static const Item G_FANS[]    = { Item::NumberFans, Item::FanSelect, Item::FanSpeed, Item::FanMode, Item::FanMin, Item::FanMax,
@@ -197,7 +197,7 @@ static const Item G_CO2[]     = { Item::Threshold1, Item::Threshold2, Item::Thre
                                   Item::Threshold6, Item::SpeedDelta };
 static const Item G_NIGHT[]   = { Item::NightStart, Item::NightEnd, Item::NightStartWd, Item::NightEndWd, Item::NightMax };
 static const Item G_RADIO[]   = { Item::RadioMode, Item::PassiveChannel, Item::TransmitPeriod, Item::RadioInfo };
-static const Item G_SENSORS[] = { Item::HistoryDays, Item::TempSensorType, Item::TempPeriod };
+static const Item G_SENSORS[] = { Item::Co2Poll, Item::TempSensorType, Item::TempPeriod, Item::HistoryDays };
 static const Item G_SCREEN[]  = { Item::BrightDay, Item::BrightNight, Item::DigitsFont,
 #if HAS_TOUCH
                                   Item::TouchCal,
@@ -230,35 +230,35 @@ static const char* const WIFI_MODE_NAMES[WIFI_MODE_COUNT] = { "выкл", "вк�
 static Screen   s_screen      = Screen::Main;
 static uint8_t  s_group       = 0;      // группа меню (запоминается между входами)
 static uint8_t  s_pos         = 0;      // пункт внутри группы
-static bool     s_inGroup     = false;  // false — список групп, true — пункты группы
-static bool     s_inItem      = false;  // TD: редактирование пункта (КН Boot / IO14 — «+» / «-»); у ES уровня нет
+static bool     s_inGroup     = false;  // false - список групп, true - пункты группы
+static bool     s_inItem      = false;  // TD: редактирование пункта (КН Boot / IO14 - «+» / «-»); у ES уровня нет
 static uint8_t  s_fanSel      = 0;
 static bool     s_resetArmed  = false;
 static bool     s_resetDone   = false;
 static bool     s_webPassDone = false;  // «Сброс пароля веба» выполнен (до выхода из меню)
-static bool     s_dirtyNet    = false;  // Wi-Fi вкл/выкл, пароль веба — сохранить при выходе
+static bool     s_dirtyNet    = false;  // Wi-Fi вкл/выкл, пароль веба - сохранить при выходе
 static bool     s_dirtyCo2    = false;
 static bool     s_dirtyFans   = false;
 static bool     s_dirtyVars   = false;
-static uint8_t  s_brightShown = 0;      // применённая яркость (0..255), 0 — ещё не задана
+static uint8_t  s_brightShown = 0;      // применённая яркость (0..255), 0 - ещё не задана
 static bool     s_recalc      = false;
 static uint32_t s_lastInput   = 0;
 static uint32_t s_lastDraw    = 0;
 static bool     s_radioRegsOk = false;
 static uint16_t s_histDays    = 0;     // размер истории в меню, сутки (применяется при выходе)
-static uint16_t s_menuPeriodS = 0;     // период рассылки при входе в меню (сменился — буферы пересоздаются)
+static uint16_t s_menuPeriodS = 0;     // период рассылки при входе в меню (сменился - буферы пересоздаются)
 
 // График истории
 static uint32_t s_histOffset  = 0;     // записей от самой новой до правого края
 static uint8_t  s_histScale   = HIST_SCALE_DEF;
 static uint32_t s_histCount   = 0;     // History::count() при последней отрисовке
-static uint16_t s_histCols[HIST_MAX_COLS];   // CO2 колонки (среднее), колонка 0 — правый край
+static uint16_t s_histCols[HIST_MAX_COLS];   // CO2 колонки (среднее), колонка 0 - правый край
 static uint32_t s_histUp[HIST_MAX_COLS];     // аптайм самой новой записи колонки
-static int16_t  s_histTemp[HIST_MAX_COLS];   // температура колонки (среднее), 0.1 °C; HISTORY_NO_TEMP — нет
+static int16_t  s_histTemp[HIST_MAX_COLS];   // температура колонки (среднее), 0.1 °C; HISTORY_NO_TEMP - нет
 static int16_t  s_histValid   = 0;     // колонок с данными
-static int16_t  s_histCursor  = -1;    // колонка под курсором (-1 — нет)
+static int16_t  s_histCursor  = -1;    // колонка под курсором (-1 - нет)
 
-// Кэш главного экрана — перерисовка только изменившегося
+// Кэш главного экрана - перерисовка только изменившегося
 static int32_t  s_shownCo2    = -2;
 static uint16_t s_shownColor  = 0;
 static uint8_t  s_shownFont   = DIGITS_FONT_COUNT;   // шрифт показанных цифр (DigitsFont)
@@ -274,7 +274,7 @@ static char     s_sysShown[SYS_LINES * SYS_LINE_BYTES + SYS_LINES];   // пок�
 // =====================================================================================
 static int16_t clampI(int16_t v, int16_t lo, int16_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-// Текущий пункт меню; Item::Count — открыт список групп
+// Текущий пункт меню; Item::Count - открыт список групп
 static Item curItem() { return s_inGroup ? MENU_GROUPS[s_group].items[s_pos] : Item::Count; }
 
 // История: записей на days суток при текущем периоде рассылки (как History::configure)
@@ -298,7 +298,7 @@ static void tenthsText(int16_t t, char* buf, size_t len)
     snprintf(buf, len, "%s%d.%d", t < 0 ? "-" : "", a / TENTHS_PER_DEG, a % TENTHS_PER_DEG);
 }
 
-// Значок градуса: в шрифтах U8g2 *_t_cyrillic символа ° нет (Scripts/u8g2_glyphs.py) — в строке экрана
+// Значок градуса: в шрифтах U8g2 *_t_cyrillic символа ° нет (Scripts/u8g2_glyphs.py) - в строке экрана
 // на его месте пишется DEG_MARK, а drawStrDeg() рисует кружок радиусом DEG_R.
 constexpr char    DEG_MARK = '`';
 constexpr int16_t DEG_W    = 2 * DEG_R + 2 * DEG_GAP;   // место значка в строке, px
@@ -325,7 +325,7 @@ static void drawStrDeg(const char* s, int16_t x, int16_t cy, uint16_t color)
 {
     char part[SYS_LINE_BYTES];
     lcd.setTextDatum(lgfx::middle_left);
-    const int16_t dy = (int16_t)lcd.fontHeight() / 2 - DEG_R - 1;   // кружок — у верха строчных букв
+    const int16_t dy = (int16_t)lcd.fontHeight() / 2 - DEG_R - 1;   // кружок - у верха строчных букв
     while (*s) {
         const char* e = strchr(s, DEG_MARK);
         const size_t n = e ? (size_t)(e - s) : strlen(s);
@@ -392,14 +392,14 @@ static void drawLine(const char* text, int16_t y, int16_t h, const lgfx::IFont* 
 // =====================================================================================
 // Раскладка: шапка | цифры CO2 | [ES: ряд кнопок, при активной панели] | нижняя строка (всегда видна)
 static int16_t infoY2()   { return lcd.height() - BOTTOM_LINE_H; }               // нижняя строка
-static int16_t mainBtnY() { return infoY2() - BTN_ROW_H; }                       // ES: кнопки — над нижней строкой
-// Цифры (96 px): ES — между строкой статусов вентиляторов (под шапкой) и рядом кнопок, без наложения;
-// TD — между шапкой и нижней строкой (100 px): строка статусов на TD не показывается (наложилась бы на цифры)
+static int16_t mainBtnY() { return infoY2() - BTN_ROW_H; }                       // ES: кнопки - над нижней строкой
+// Цифры (96 px): ES - между строкой статусов вентиляторов (под шапкой) и рядом кнопок, без наложения;
+// TD - между шапкой и нижней строкой (100 px): строка статусов на TD не показывается (наложилась бы на цифры)
 static int16_t digitsCY() { return HAS_TOUCH ? (HEADER_H + INFO_LINE_H + mainBtnY()) / 2 : (HEADER_H + infoY2()) / 2; }
-static int16_t fansY()    { return HEADER_H; }                                   // строка скоростей вентиляторов — под часами
+static int16_t fansY()    { return HEADER_H; }                                   // строка скоростей вентиляторов - под часами
 static int16_t mainBtnW() { return lcd.width() / MAIN_BTN_COUNT; }
-static int16_t adjPlusY() { return fansY() + INFO_LINE_H + MARGIN; }             // TD: метка «+» — у Boot (сверху)
-static int16_t adjMinusY(){ return infoY2() - ADJ_MARK_H - MARGIN; }             // TD: метка «-» — у IO14, над нижней строкой
+static int16_t adjPlusY() { return fansY() + INFO_LINE_H + MARGIN; }             // TD: метка «+» - у Boot (сверху)
+static int16_t adjMinusY(){ return infoY2() - ADJ_MARK_H - MARGIN; }             // TD: метка «-» - у IO14, над нижней строкой
 
 // Иконка вентилятора: 3 лопасти + ступица
 static void drawFanIcon(int16_t cx, int16_t cy, uint16_t color)
@@ -452,7 +452,7 @@ static void drawFitted(const char* text, int16_t y, int16_t h, const lgfx::IFont
     drawLine(text, y, h, font, color, lgfx::middle_center, lcd.width() / 2);
 }
 
-// «Выход» сверху справа — как в меню: главный экран (ES, при активной панели) и меню
+// «Выход» сверху справа - как в меню: главный экран (ES, при активной панели) и меню
 static void drawMainExit()
 {
 #if HAS_TOUCH
@@ -460,11 +460,11 @@ static void drawMainExit()
 #endif
 }
 
-// Активная панель главного экрана (s_btnShown): ES — касание экрана, TD — короткое IO14 (режим скорости).
+// Активная панель главного экрана (s_btnShown): ES - касание экрана, TD - короткое IO14 (режим скорости).
 // Показывает строку скоростей вентиляторов под часами и
-//   ES: кнопки «+», «Меню», [график], «-» — над нижней строкой (она остаётся видна), «Выход» — сверху справа,
+//   ES: кнопки «+», «Меню», [график], «-» - над нижней строкой (она остаётся видна), «Выход» - сверху справа,
 //     на месте и в размер кнопки меню (поверх правого края шапки и строки скоростей);
-//   TD: метки «+» у Boot (сверху) и «-» у IO14 (снизу) у левого края — поправка внизу видна.
+//   TD: метки «+» у Boot (сверху) и «-» у IO14 (снизу) у левого края - поправка внизу видна.
 static void showMainButtons(bool show)
 {
     s_btnShown = show;
@@ -482,7 +482,7 @@ static void showMainButtons(bool show)
     } else {
         lcd.fillRect(0, y, lcd.width(), BTN_ROW_H, COL_BG);
         lcd.fillRect(lcd.width() - EXIT_BTN_W, 0, EXIT_BTN_W, EXIT_BTN_H, COL_BG);
-        s_shownHeader[0] = '\0';   // шапка под кнопкой — перерисовать
+        s_shownHeader[0] = '\0';   // шапка под кнопкой - перерисовать
     }
 #else
     if (show) {
@@ -529,8 +529,8 @@ static const char* netTag()
     }
 }
 
-// Температура текстом без единиц: «23.4», «-5.0»; нет данных — «--.-». Влажность: «45%», нет — «--%»,
-// датчик без влажности (DS18B20) — пусто
+// Температура текстом без единиц: «23.4», «-5.0»; нет данных - «--.-». Влажность: «45%», нет - «--%»,
+// датчик без влажности (DS18B20) - пусто
 static void tempText(char* t, size_t tLen, char* h, size_t hLen)
 {
     const bool ok = TempSensor::valid();
@@ -543,14 +543,14 @@ static void tempText(char* t, size_t tLen, char* h, size_t hLen)
     else                    snprintf(h, hLen, "--%%");
 }
 
-// Шрифт влажности — мельче температуры и без масштабирования (дробный масштаб растрового шрифта рвёт
-// контуры, «%» выходил ступенчатым): к 10x20 x2 — Inconsolata 24 px, к 10x20 — 9x15, к 9x15 — он же
+// Шрифт влажности - мельче температуры и без масштабирования (дробный масштаб растрового шрифта рвёт
+// контуры, «%» выходил ступенчатым): к 10x20 x2 - Inconsolata 24 px, к 10x20 - 9x15, к 9x15 - он же
 static const lgfx::IFont* humFont(uint8_t k)
 {
     return k == TEMP_TEXT_SCALE ? &s_fontValueMid : FONT_SMALL;
 }
 
-// Ширина «23.4°  45%» шрифтом f: температура x k, влажность — humFont()
+// Ширина «23.4°  45%» шрифтом f: температура x k, влажность - humFont()
 static int16_t tempWidth(const lgfx::IFont* f, uint8_t k, const char* t, const char* h)
 {
     lcd.setFont(f);
@@ -565,8 +565,8 @@ static int16_t tempWidth(const lgfx::IFont* f, uint8_t k, const char* t, const c
 }
 
 // «23.4°  45%» у правого края, по центру cy (значок градуса рисуется: в шрифте его нет; «C» не пишется).
-// Температура — 10x20 x TEMP_TEXT_SCALE, влажность — мельче, своим шрифтом без масштаба (humFont).
-// Не помещается правее leftX (иконки скорости и поправка) — x1, затем 9x15.
+// Температура - 10x20 x TEMP_TEXT_SCALE, влажность - мельче, своим шрифтом без масштаба (humFont).
+// Не помещается правее leftX (иконки скорости и поправка) - x1, затем 9x15.
 static void drawTemp(const char* t, const char* h, int16_t cy, uint16_t color, int16_t leftX)
 {
     const int16_t maxW = lcd.width() - MARGIN - leftX - TEMP_RH_GAP;
@@ -624,8 +624,8 @@ static uint16_t blend565(uint16_t fg, uint16_t bg, uint8_t a)
     return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
-// Строка s по центру (cx, cy) на полосе DIGITS_BAND_H x ширина экрана: фон полосы — bg (как setTextPadding у Font7).
-// Строки полосы собираются в буфер и выводятся pushImage — без мерцания, без кучи. false — не влезает по ширине.
+// Строка s по центру (cx, cy) на полосе DIGITS_BAND_H x ширина экрана: фон полосы - bg (как setTextPadding у Font7).
+// Строки полосы собираются в буфер и выводятся pushImage - без мерцания, без кучи. false - не влезает по ширине.
 static bool drawSmoothDigits(const char* s, int16_t cx, int16_t cy, uint16_t fg, uint16_t bg)
 {
     static lgfx::rgb565_t line[DIGITS_LINE_MAX];
@@ -700,7 +700,7 @@ static void drawMainDynamic(uint32_t now)
         snprintf(buf, sizeof(buf), "%s%s  нет датчика  %s", tbuf, night, netTag());
         hdrColor = COL_ERR;
     } else {
-        // связь с вентиляторами: «связь 2/3» (на связи / всего), один — «связь: да / нет», нет вентиляторов — пусто
+        // связь с вентиляторами: «связь 2/3» (на связи / всего), один - «связь: да / нет», нет вентиляторов - пусто
         char link[24] = "";
         if (nFans == 1)    snprintf(link, sizeof(link), "  связь: %s", okCount ? "да" : "нет");
         else if (nFans > 1) snprintf(link, sizeof(link), "  связь %u/%u", okCount, nFans);
@@ -725,7 +725,7 @@ static void drawMainDynamic(uint32_t now)
         s_shownFont = Cfg::co2.digitsFont;
         if (shown < 0) snprintf(buf, sizeof(buf), "----");
         else           snprintf(buf, sizeof(buf), "%ld", (long)shown);
-        // Сглаженный не влез (5 знаков — показание вне диапазона) — 7-сегментным, он уже
+        // Сглаженный не влез (5 знаков - показание вне диапазона) - 7-сегментным, он уже
         if (s_shownFont != DIGITS_FONT_SMOOTH || !drawSmoothDigits(buf, lcd.width() / 2, digitsCY(), color, COL_BG)) {
             lcd.setFont(FONT_DIGITS);
             lcd.setTextSize(DIGITS_SCALE);
@@ -736,14 +736,14 @@ static void drawMainDynamic(uint32_t now)
             lcd.setTextPadding(0);
             lcd.setTextSize(1);
         }
-        s_shownInfo1[0] = '\0';   // цифры могли затереть строку вентиляторов — перерисовать
+        s_shownInfo1[0] = '\0';   // цифры могли затереть строку вентиляторов - перерисовать
         if (!HAS_TOUCH && s_btnShown) {   // TD: фон цифр на всю ширину стёр метки «+» / «-»
             drawButton(0, adjPlusY(),  ADJ_MARK_W, ADJ_MARK_H, "+");
             drawButton(0, adjMinusY(), ADJ_MARK_W, ADJ_MARK_H, "-");
         }
     }
 
-    // --- Под часами: скорости вентиляторов — при активной панели, только ES (на TD наложилась бы на цифры) ---
+    // --- Под часами: скорости вентиляторов - при активной панели, только ES (на TD наложилась бы на цифры) ---
     if (HAS_TOUCH && s_btnShown) {
         size_t pos = 0;
         char st[8];
@@ -753,11 +753,11 @@ static void drawMainDynamic(uint32_t now)
         if (strcmp(buf, s_shownInfo1) != 0) {
             strlcpy(s_shownInfo1, buf, sizeof(s_shownInfo1));
             drawLine(buf, fansY(), INFO_LINE_H, FONT_SMALL, COL_TEXT);
-            drawMainExit();   // нижний край кнопки — на строке скоростей
+            drawMainExit();   // нижний край кнопки - на строке скоростей
         }
     }
-    // --- Нижняя строка (видна всегда, кнопки ES — над ней): скорость = число иконок вентилятора (0 — пусто),
-    //     поправка «+1» — если ≠ 0; справа — температура и влажность (если датчик выбран в настройках) ---
+    // --- Нижняя строка (видна всегда, кнопки ES - над ней): скорость = число иконок вентилятора (0 - пусто),
+    //     поправка «+1» - если ≠ 0; справа - температура и влажность (если датчик выбран в настройках) ---
     const uint8_t speed = FanControl::baseSpeed();
     char ovr[8] = "", temp[12] = "", hum[8] = "";
     if (Cfg::vars.speedOverride != 0) snprintf(ovr, sizeof(ovr), "%+d", Cfg::vars.speedOverride);
@@ -768,7 +768,7 @@ static void drawMainDynamic(uint32_t now)
         strlcpy(s_shownInfo2, buf, sizeof(s_shownInfo2));
         const int16_t cy = infoY2() + BOTTOM_LINE_H / 2;
         const int16_t textX = MARGIN + speed * FAN_ICON_STEP + (speed ? MARGIN : 0);
-        drawLine(ovr, infoY2(), BOTTOM_LINE_H, FONT_TEXT, COL_ERR, lgfx::middle_left, textX);   // поправка — красным
+        drawLine(ovr, infoY2(), BOTTOM_LINE_H, FONT_TEXT, COL_ERR, lgfx::middle_left, textX);   // поправка - красным
         for (uint8_t i = 0; i < speed; i++)
             drawFanIcon(MARGIN + FAN_ICON_R + i * FAN_ICON_STEP, cy, COL_TEXT);
         if (temp[0]) {
@@ -794,7 +794,7 @@ static uint32_t histMaxOffset()
     return n > w ? n - w : 0;
 }
 
-// records > 0 — к более старым данным (влево), < 0 — к новым
+// records > 0 - к более старым данным (влево), < 0 - к новым
 static void histScroll(int32_t records)
 {
     int64_t o = (int64_t)s_histOffset + records;
@@ -827,7 +827,7 @@ static void drawHistoryStatic()
     drawButton(2 * s + EXIT_BTN_W, y, s,          BTN_ROW_H, "+");
     drawButton(3 * s + EXIT_BTN_W, y, lcd.width() - 3 * s - EXIT_BTN_W, BTN_ROW_H, ">");
 #else
-    drawLine("Boot:нов IO14:стар ДН:масшт/выход", lcd.height() - HINT_H, HINT_H, FONT_SMALL, COL_DIM);
+    drawLine("Кн.1:нов Кн.2:стар ДН:масшт/выход", lcd.height() - HINT_H, HINT_H, FONT_SMALL, COL_DIM);
 #endif
 }
 
@@ -843,15 +843,15 @@ static int32_t localOffsetS(time_t now)
     return dd * (int32_t)S_PER_DAY + (lt.tm_hour - gt.tm_hour) * (int32_t)S_PER_HOUR + (lt.tm_min - gt.tm_min) * (int32_t)S_PER_MIN;
 }
 
-// Минута записи для оси времени: местное время (минут от 1970), до установки часов — минуты аптайма
+// Минута записи для оси времени: местное время (минут от 1970), до установки часов - минуты аптайма
 static int64_t histMinute(uint32_t uptimeS, bool timeOk, int32_t offS)
 {
     if (!timeOk) return uptimeS / S_PER_MIN;
     return ((int64_t)Net::epochFromUptime(uptimeS) + offS) / (int64_t)S_PER_MIN;
 }
 
-// Подпись отметки оси времени (minute — граница шага): «ЧЧ:ММ», для шага от суток — «ДД.ММ»;
-// до установки часов — «-N мин» / «-N ч» от текущего момента
+// Подпись отметки оси времени (minute - граница шага): «ЧЧ:ММ», для шага от суток - «ДД.ММ»;
+// до установки часов - «-N мин» / «-N ч» от текущего момента
 static void histTickText(int64_t minute, uint16_t stepMin, bool timeOk, int32_t offS, char* buf, size_t len)
 {
     if (!timeOk) {
@@ -872,7 +872,7 @@ static void histTickText(int64_t minute, uint16_t stepMin, bool timeOk, int32_t 
     snprintf(buf, len, "%02d:%02d", (int)(m / MIN_PER_HOUR), (int)(m % MIN_PER_HOUR));
 }
 
-static int16_t histColX(int16_t c) { return histX0() + histCols() - 1 - c; }   // колонка 0 — правый край
+static int16_t histColX(int16_t c) { return histX0() + histCols() - 1 - c; }   // колонка 0 - правый край
 
 // Курсор: вертикальная линия, точка на кривой, подсказка «время  значение» вверху графика
 static void drawHistCursor(int16_t y0, int16_t y1, int16_t yv)
@@ -907,7 +907,7 @@ static void drawHistoryChart()
     if (s_histOffset > histMaxOffset()) s_histOffset = histMaxOffset();
     s_histCount = History::count();
 
-    // Усреднение по scale записей на колонку; колонка 0 — правый край (самые новые)
+    // Усреднение по scale записей на колонку; колонка 0 - правый край (самые новые)
     int16_t  validCols = 0;
     uint16_t vmin = UINT16_MAX, vmax = 0;
     for (int16_t c = 0; c < cols; c++) {
@@ -932,7 +932,7 @@ static void drawHistoryChart()
     s_histValid = validCols;
     if (s_histCursor >= validCols) s_histCursor = -1;
 
-    // Заголовок: «История CO2  ↔ 5 ч  x4» — стрелка рисуется (в шрифте нет символа ↔)
+    // Заголовок: «История CO2  ↔ 5 ч  x4» - стрелка рисуется (в шрифте нет символа ↔)
     char buf[64];
     const uint32_t spanS = histWindow() * Cfg::co2.transmitPeriodS;
     if (spanS >= S_PER_DAY) snprintf(buf, sizeof(buf), "%lu сут  x%u", (unsigned long)(spanS / S_PER_DAY), scale);
@@ -1013,7 +1013,7 @@ static void drawHistoryChart()
         lcd.drawPixel(x, y, COL_AREA_TOP);
     }
 
-    // Температура — красная линия, своя шкала: мин..макс по ВСЕМУ буферу (подписи справа вверху / внизу)
+    // Температура - красная линия, своя шкала: мин..макс по ВСЕМУ буферу (подписи справа вверху / внизу)
     int16_t tlo, thi;
     if (History::tempRange(tlo, thi)) {
         if (thi - tlo < HIST_T_MIN_SPAN) { tlo -= HIST_T_MIN_SPAN / 2; thi = tlo + HIST_T_MIN_SPAN; }
@@ -1050,7 +1050,7 @@ static void drawHistoryChart()
 }
 
 #if HAS_TOUCH
-// Касание графика без сдвига: курсор на колонку под пальцем, повторно в ту же точку или вне данных — убрать
+// Касание графика без сдвига: курсор на колонку под пальцем, повторно в ту же точку или вне данных - убрать
 static void histTap(int32_t x)
 {
     const int16_t c = (int16_t)(histColX(0) - x);
@@ -1077,7 +1077,7 @@ static void exitHistory()
 
 static void handleHistoryKey(Key k)
 {
-    if (k != Key::None) s_histCursor = -1;   // прокрутка и масштаб — данные под курсором другие
+    if (k != Key::None) s_histCursor = -1;   // прокрутка и масштаб - данные под курсором другие
     switch (k) {
     case Key::Prev: histScroll((int32_t)(histWindow() / 2)); break;    // к старым
     case Key::Next: histScroll(-(int32_t)(histWindow() / 2)); break;   // к новым
@@ -1097,7 +1097,7 @@ static void exitMenu();
 
 static bool isFanItem(Item it) { return it >= Item::FanSpeed && it <= Item::FanAddress; }
 
-// Карточки-сведения: значение не меняется — на TD в редактирование не входят
+// Карточки-сведения: значение не меняется - на TD в редактирование не входят
 static bool isInfoItem(Item it)
 {
     return it == Item::NetInfo || it == Item::RadioInfo || it == Item::About || it == Item::SysState;
@@ -1167,6 +1167,7 @@ static void itemLabel(Item it, char* buf, size_t len)
     case Item::Debug:          snprintf(buf, len, "Отладка"); break;
     case Item::About:          snprintf(buf, len, "О программе"); break;
     case Item::TempPeriod:     snprintf(buf, len, "Период чтения температуры"); break;
+    case Item::Co2Poll:        snprintf(buf, len, "Период чтения CO2"); break;
     case Item::TempSensorType: snprintf(buf, len, "Датчик температуры"); break;
     default:
         snprintf(buf, len, "Порог скорости %u", (unsigned)((uint8_t)it - (uint8_t)Item::Threshold1 + 1));
@@ -1213,8 +1214,9 @@ static void itemValue(Item it, char* buf, size_t len)
     case Item::RadioMode:      snprintf(buf, len, "%s", RADIO_MODE_NAMES[Cfg::co2.radioMode]); break;
     case Item::PassiveChannel: snprintf(buf, len, "%u", Cfg::co2.passiveChannel); break;
     case Item::TempPeriod:     snprintf(buf, len, "%u с", Cfg::co2.tempPeriodS); break;
+    case Item::Co2Poll:        snprintf(buf, len, "%u с", Cfg::co2.co2PollS); break;
     case Item::TempSensorType: snprintf(buf, len, "%s", TempSensor::typeName(Cfg::co2.tempSensor)); break;
-    case Item::HistoryDays: {   // сутки (объём буферов CO2 + температуры); не помещается в память — сколько влезет
+    case Item::HistoryDays: {   // сутки (объём буферов CO2 + температуры); не помещается в память - сколько влезет
         const uint32_t rec = histRecordsFor(s_histDays), maxRec = History::maxRecords();
         char sz[16];
         if (rec <= maxRec) {
@@ -1255,7 +1257,7 @@ static void itemValue(Item it, char* buf, size_t len)
     }
 }
 
-static uint8_t taskPages();   // карточка «Задачи FreeRTOS» — ниже, у drawTasks()
+static uint8_t taskPages();   // карточка «Задачи FreeRTOS» - ниже, у drawTasks()
 
 static void changeItem(Item it, int8_t dir)
 {
@@ -1323,12 +1325,16 @@ static void changeItem(Item it, int8_t dir)
         Cfg::co2.transmitPeriodS = (uint16_t)clampI((int16_t)Cfg::co2.transmitPeriodS + dir, TRANSMIT_PERIOD_MIN_S, TRANSMIT_PERIOD_MAX_S);
         s_dirtyCo2 = true;
         break;
-    case Item::RadioMode:      // применяется сразу (FanControl перенастраивает модуль), в NVS — при выходе
+    case Item::RadioMode:      // применяется сразу (FanControl перенастраивает модуль), в NVS - при выходе
         Cfg::co2.radioMode = (uint8_t)((Cfg::co2.radioMode + RADIO_MODE_COUNT + dir) % RADIO_MODE_COUNT);
         s_dirtyCo2 = true;
         break;
     case Item::PassiveChannel:
         Cfg::co2.passiveChannel = (uint8_t)clampI(Cfg::co2.passiveChannel + dir, 0, RF_CHANNEL_MAX);
+        s_dirtyCo2 = true;
+        break;
+    case Item::Co2Poll:        // действует сразу (Co2Sensor::update), в NVS - при выходе
+        Cfg::co2.co2PollS = (uint8_t)clampI(Cfg::co2.co2PollS + dir, CO2_POLL_MIN_S, CO2_POLL_MAX_S);
         s_dirtyCo2 = true;
         break;
     case Item::TempPeriod:
@@ -1360,23 +1366,23 @@ static void changeItem(Item it, int8_t dir)
         s_taskPage = (uint8_t)((s_taskPage + pages + dir) % pages);
         break;
     }
-    case Item::TouchCal:   // двойное «+»: стереть калибровку и перезапуститься — калибровка при старте
+    case Item::TouchCal:   // двойное «+»: стереть калибровку и перезапуститься - калибровка при старте
         if (!HAS_TOUCH || dir < 0) { s_resetArmed = false; break; }
         if (!s_resetArmed)         { s_resetArmed = true; break; }
         exitMenu();               // сохранить изменённые настройки
         Cfg::clearTouchCal();
         ESP.restart();
         break;
-    case Item::WifiMode:       // выкл / вкл / часы по кругу; применяется сразу (Net перезапускает Wi-Fi), в NVS — при выходе
+    case Item::WifiMode:       // выкл / вкл / часы по кругу; применяется сразу (Net перезапускает Wi-Fi), в NVS - при выходе
         Cfg::net.wifiMode = (uint8_t)((Cfg::net.wifiMode + WIFI_MODE_COUNT + dir) % WIFI_MODE_COUNT);
         s_dirtyNet = true;
         Net::requestReconnect();
         break;
-    case Item::Debug:          // вкл / выкл; действует сразу, в NVS — при выходе
+    case Item::Debug:          // вкл / выкл; действует сразу, в NVS - при выходе
         Cfg::co2.debug = Cfg::co2.debug ? 0 : 1;
         s_dirtyCo2 = true;
         break;
-    case Item::WebPassReset:   // двойное «+»: пароль настроек веба — NET_WEB_PASS_DEF
+    case Item::WebPassReset:   // двойное «+»: пароль настроек веба - NET_WEB_PASS_DEF
         if (dir < 0)       { s_resetArmed = false; break; }
         if (!s_resetArmed) { s_resetArmed = true; break; }
         strlcpy(Cfg::net.webPass, NET_WEB_PASS_DEF, sizeof(Cfg::net.webPass));
@@ -1403,7 +1409,7 @@ static void changeItem(Item it, int8_t dir)
     }
 }
 
-// Кнопки (тач) / подсказка (кнопки): в списке групп — «Выход», в группе — «Назад»
+// Кнопки (тач) / подсказка (кнопки): в списке групп - «Выход», в группе - «Назад»
 static void drawMenuStatic()
 {
     lcd.fillScreen(COL_BG);
@@ -1415,11 +1421,11 @@ static void drawMenuStatic()
     drawButton(w4 * 2,     y, w4, BTN_ROW_H, "+");
     drawButton(w4 * 3,     y, lcd.width() - w4 * 3, BTN_ROW_H, ">");
 #else
-    // ДН: первое — Boot, второе — IO14 (порядок как у КН)
-    const char* hint = !s_inGroup ? "Boot:след IO14:пред ДН:вход/выход"
-                     : !s_inItem  ? "Boot:след IO14:пред ДН:изм./назад"
-                     : curItem() == Item::Tasks ? "Boot:стр.+ IO14:стр.- ДН IO14:назад"
-                                  : "Boot:+  IO14:-  ДН IO14:готово";
+    // ДН: первое - Boot, второе - IO14 (порядок как у КН)
+    const char* hint = !s_inGroup ? "Кн.1:след Кн.2:пред ДН:вход/выход"
+                     : !s_inItem  ? "Кн.1:след Кн.2:пред ДН:изм./назад"
+                     : curItem() == Item::Tasks ? "Кн.1:стр.+ Кн.2:стр.- ДН Кн.2:назад"
+                                  : "Кн.1:+  Кн.2:-  ДН Кн.2:готово";
     drawLine(hint, lcd.height() - HINT_H, HINT_H, FONT_SMALL, s_inItem ? COL_OK : COL_DIM);
 #endif
 }
@@ -1444,8 +1450,8 @@ static void drawStatusIcon(int16_t x, int16_t cy, bool ok)
     }
 }
 
-// Строка карточки («Сеть Wi-Fi», «О программе»): текст слева (мельче, если не влезает); status: -1 — без значка,
-// 0 — крестик, 1 — галочка (справа от текста)
+// Строка карточки («Сеть Wi-Fi», «О программе»): текст слева (мельче, если не влезает); status: -1 - без значка,
+// 0 - крестик, 1 - галочка (справа от текста)
 static void drawInfoLine(const char* text, int16_t y, uint16_t color, int8_t status)
 {
     const int32_t maxW = lcd.width() - 2 * MARGIN - (status >= 0 ? STATUS_ICON_W + HDR_GAP : 0);
@@ -1454,7 +1460,7 @@ static void drawInfoLine(const char* text, int16_t y, uint16_t color, int8_t sta
     lcd.fillRect(0, y, lcd.width(), NET_LINE_H, COL_BG);
     lcd.setFont(FONT_TEXT);
     if (lcd.textWidth(t) > maxW) lcd.setFont(FONT_SMALL);
-    trimToWidth(t, maxW);                        // и мелким не влезает (длинный SSID) — обрезать, значок остаётся виден
+    trimToWidth(t, maxW);                        // и мелким не влезает (длинный SSID) - обрезать, значок остаётся виден
     lcd.setTextDatum(lgfx::middle_left);
     lcd.setTextColor(color, COL_BG);
     lcd.drawString(t, MARGIN, y + NET_LINE_H / 2);
@@ -1462,14 +1468,14 @@ static void drawInfoLine(const char* text, int16_t y, uint16_t color, int8_t sta
 }
 
 // Значение пункта «Сеть Wi-Fi»:
-//   Wi-Fi выключен              — выключен в меню (пункт Wi-Fi выше), больше ничего
-//   Режим «часы» — 3 строки: «Часы: роутер <SSID>», «Время получено N мин назад» / «Время ещё не получено»,
+//   Wi-Fi выключен              - выключен в меню (пункт Wi-Fi выше), больше ничего
+//   Режим «часы» - 3 строки: «Часы: роутер <SSID>», «Время получено N мин назад» / «Время ещё не получено»,
 //   «Синхронизация...» / «Следующая через N мин»
-//   AP: CO2-Hub, 192.168.4.1   — только если точка доступа включена (имя и пароль — из настроек веба)
+//   AP: CO2-Hub, 192.168.4.1   - только если точка доступа включена (имя и пароль - из настроек веба)
 //   Пароль AP: co2sensor
-//   STA: <SSID> ✓ / ✗          — связь с роутером есть / нет («сеть не задана», если SSID пуст)
-//   IP: <адрес станции>        — только при связи с роутером (тогда точка доступа выключена)
-// force = false — перерисовка только при изменении (вызывается раз в UI_REFRESH_MS)
+//   STA: <SSID> ✓ / ✗          - связь с роутером есть / нет («сеть не задана», если SSID пуст)
+//   IP: <адрес станции>        - только при связи с роутером (тогда точка доступа выключена)
+// force = false - перерисовка только при изменении (вызывается раз в UI_REFRESH_MS)
 static void drawNetInfo(bool force)
 {
     char ap[INFO_LINE_BYTES] = "", pass[INFO_LINE_BYTES] = "", sta[INFO_LINE_BYTES], ip[INFO_LINE_BYTES] = "";
@@ -1487,7 +1493,7 @@ static void drawNetInfo(bool force)
     } else if (!on) {
         snprintf(sta, sizeof(sta), "Wi-Fi выключен");
     } else {
-        if (Net::apActive()) {   // точка доступа: имя, адрес и пароль (экран — у владельца устройства)
+        if (Net::apActive()) {   // точка доступа: имя, адрес и пароль (экран - у владельца устройства)
             Net::apIpString(a, sizeof(a));
             snprintf(ap, sizeof(ap), "AP: %s, %s", Net::apSsid(), a);
             snprintf(pass, sizeof(pass), "Пароль AP: %s", Net::apPass());
@@ -1514,7 +1520,7 @@ static void drawNetInfo(bool force)
     if (ip[0]) drawInfoLine(ip, y, COL_WARN, -1);
 }
 
-// «О программе»: версия и плата, дата сборки, автор — ABOUT_LINES строк по NET_LINE_H от y
+// «О программе»: версия и плата, дата сборки, автор - ABOUT_LINES строк по NET_LINE_H от y
 // (меню, п. «О программе», и экран запуска)
 constexpr int16_t ABOUT_LINES = 3;
 static void drawAboutLines(int16_t y, uint16_t color)
@@ -1534,16 +1540,16 @@ static void drawAbout()
 }
 
 // «Состояние системы»: SYS_LINES строк 9x15 на всю карточку (от menuTop: на T-Display 116 px = 6 x 19 px),
-// название — первой строкой (отдельной строки-названия крупным шрифтом нет — иначе на T-Display влезло бы 4):
+// название - первой строкой (отдельной строки-названия крупным шрифтом нет - иначе на T-Display влезло бы 4):
 //   Состояние системы
-//   CPU: 12%, 35%, 45.3°C               — загрузка ядер 0 и 1 (статистика задач FreeRTOS), температура чипа
+//   CPU: 12%, 35%, 45.3°C               - загрузка ядер 0 и 1 (статистика задач FreeRTOS), температура чипа
 //   Свободно RAM 180 Кб, PSRAM 7.5 Мб
-//   Буфер: 7.0 сут (30240), 236 Кб      — вмещает (сутки при текущем периоде, записей), выделено CO2 + t
-//   Занято: 4.6 сут (19872)             — записано
-//   CO2 116 Кб, t° 39 Кб                — занято записанным (t° — записи с температурой; буфера нет — «t° нет»); ° — DEG_MARK
+//   Буфер: 7.0 сут (30240), 236 Кб      - вмещает (сутки при текущем периоде, записей), выделено CO2 + t
+//   Занято: 4.6 сут (19872)             - записано
+//   CO2 116 Кб, t° 39 Кб                - занято записанным (t° - записи с температурой; буфера нет - «t° нет»); ° - DEG_MARK
 // В строке 34 символа (320 px / 9 px). Худший случай (PSRAM 8 Мб, 365 сут, ~1 млн записей):
-// «Буфер: 365.0 сут (1017290), 8.1 Мб» — 34 символа.
-// force = false — перерисовка только при изменении
+// «Буфер: 365.0 сут (1017290), 8.1 Мб» - 34 символа.
+// force = false - перерисовка только при изменении
 static void drawSysInfo(bool force)
 {
     char l[SYS_LINES][SYS_LINE_BYTES], a[16], b[16], c[16];
@@ -1584,24 +1590,52 @@ static void drawSysInfo(bool force)
     }
 }
 
-// «Задачи FreeRTOS»: таблица на всю карточку (от menuTop), строки 9x15 по TASK_LINE_H:
-//   Задача       сост  П  стек итог 1/3   — заголовок, страница справа
-//   loopTask     раб   1  5432  12%       — имя, состояние, приоритет, мин. свободный стек за всё время (байт),
-//                                           доля времени ЦП с запуска (оба ядра; <1% — меньше процента)
-// Стек меньше TASK_STACK_WARN_B — красным. Порядок — SysInfo (по убыванию приоритета, затем по имени).
-// force = false — перерисовка только по новому снимку SysInfo (раз в SYSINFO_PERIOD_MS)
+// «Задачи FreeRTOS»: таблица на всю карточку (от menuTop), строки 9x15 по TASK_LINE_H, задачи - по ядрам:
+//   Задача       ? Пр  Стек  Итог 1/3   - заголовок, страница справа
+//   Ядро 0: загрузка 12%                 - группа: ядро 0, ядро 1, любое ядро (без привязки); загрузка - за SYSINFO_PERIOD_MS
+//   IDLE0        R  0   724   47%       - имя, состояние (W выполняется, R готова, B ждёт, S приост., D удалена),
+//                                         приоритет, мин. свободный стек за всё время (байт),
+//                                         доля времени ЦП с запуска (оба ядра; <1% - меньше процента)
+// Стек меньше TASK_STACK_WARN_B - красным. Внутри группы - порядок SysInfo (по убыванию приоритета, затем по имени).
+// force = false - перерисовка только по новому снимку SysInfo (раз в SYSINFO_PERIOD_MS)
+constexpr uint8_t TASK_GROUPS_N = 3;                                    // ядро 0, ядро 1, любое
+static const int8_t TASK_GROUP_CORE[TASK_GROUPS_N] = { 0, 1, -1 };
+constexpr uint8_t TASK_LIST_MAX = SYSINFO_TASKS_MAX + TASK_GROUPS_N;    // строк списка: задачи + заголовки групп
+constexpr uint8_t TASK_LIST_GROUP = 0xFF;                               // элемент списка - заголовок группы
+
+struct TaskListItem { uint8_t task; int8_t core; };                    // task - индекс SysInfo или TASK_LIST_GROUP
+static TaskListItem s_taskList[TASK_LIST_MAX];
+static uint8_t      s_taskListN = 0;
+
+// Список строк: группы по ядрам (пустые не показываются), в каждой - её задачи
+static void buildTaskList()
+{
+    s_taskListN = 0;
+    const uint8_t n = SysInfo::taskCount();
+    for (uint8_t g = 0; g < TASK_GROUPS_N; g++) {
+        const int8_t core = TASK_GROUP_CORE[g];
+        bool any = false;
+        for (uint8_t i = 0; i < n && s_taskListN < TASK_LIST_MAX; i++) {
+            if (SysInfo::task(i)->core != core) continue;
+            if (!any) { s_taskList[s_taskListN++] = { TASK_LIST_GROUP, core }; any = true; }
+            if (s_taskListN < TASK_LIST_MAX) s_taskList[s_taskListN++] = { i, core };
+        }
+    }
+}
+
 static uint8_t taskRowsPerPage() { return (uint8_t)((menuBottom() - menuTop()) / TASK_LINE_H - 1); }
 
 static uint8_t taskPages()
 {
-    const uint8_t per = taskRowsPerPage(), n = SysInfo::taskCount();
-    return n ? (uint8_t)((n + per - 1) / per) : 1;
+    buildTaskList();
+    const uint8_t per = taskRowsPerPage();
+    return s_taskListN ? (uint8_t)((s_taskListN + per - 1) / per) : 1;
 }
 
-// Строки таблицы рисуются во внеэкранную строку (спрайт на статическом буфере — без кучи) и выводятся одним
-// pushSprite: без мигания (раньше — очистка строки, затем текст поверх), и только изменившиеся строки
-// (снимок раз в SYSINFO_PERIOD_MS меняет обычно 1–2 строки из 10).
-constexpr uint8_t TASK_ROWS_MAX = 12;                                   // строк карточки с заголовком (ES — 10, TD — 7)
+// Строка таблицы рисуется во внеэкранную строку (спрайт на статическом буфере - без кучи) и выводится одним
+// pushSprite: затирание и текст попадают на экран сразу, без промежуточной пустой строки (мигания);
+// перерисовываются только изменившиеся строки (снимок раз в SYSINFO_PERIOD_MS меняет обычно 1-2 строки).
+constexpr uint8_t TASK_ROWS_MAX = 12;                                   // строк карточки с заголовком (ES - 10, TD - 7)
 static uint16_t    s_taskRowBuf[DIGITS_LINE_MAX * TASK_LINE_H];          // RGB565, строка шириной экрана
 static LGFX_Sprite s_taskRow(&lcd);
 static char        s_taskRowShown[TASK_ROWS_MAX][SYS_LINE_BYTES];       // показанное содержимое строк (ключ)
@@ -1614,7 +1648,7 @@ static void taskCell(const char* s, uint8_t col, bool right, int16_t charW)
     s_taskRow.drawString(s, MARGIN + col * charW, TASK_LINE_H / 2);
 }
 
-// Строка r карточки: перерисовать, если ключ изменился; true — нужно рисовать (спрайт очищен)
+// Строка r карточки: перерисовать, если ключ изменился; true - нужно рисовать (спрайт очищен)
 static bool taskRowBegin(uint8_t r, const char* key)
 {
     if (r >= TASK_ROWS_MAX || strcmp(s_taskRowShown[r], key) == 0) return false;
@@ -1628,7 +1662,7 @@ static void drawTasks(bool force)
     if (!force && SysInfo::snapshotId() == s_taskShown) return;
     s_taskShown = SysInfo::snapshotId();
     if (force) for (uint8_t r = 0; r < TASK_ROWS_MAX; r++) { s_taskRowShown[r][0] = TASK_ROW_INVALID; s_taskRowShown[r][1] = '\0'; }
-    const uint8_t per = taskRowsPerPage(), pages = taskPages(), n = SysInfo::taskCount();
+    const uint8_t per = taskRowsPerPage(), pages = taskPages();   // taskPages() строит s_taskList
     if (s_taskPage >= pages) s_taskPage = pages - 1;
     const int16_t top = menuTop(), bottom = menuBottom();
     s_taskRow.setBuffer(s_taskRowBuf, (int32_t)min<int32_t>(lcd.width(), DIGITS_LINE_MAX), TASK_LINE_H, lgfx::rgb565_2Byte);
@@ -1641,10 +1675,10 @@ static void drawTasks(bool force)
     if (taskRowBegin(0, buf)) {
         s_taskRow.setTextColor(COL_DIM, COL_BG);
         taskCell("Задача", 0, false, cw);
-        taskCell("сост", TASK_COL_STATE, false, cw);
-        taskCell("П", TASK_COL_PRIO_E, true, cw);
-        taskCell("стек", TASK_COL_STACK_E, true, cw);
-        taskCell("итог", TASK_COL_SHARE_E, true, cw);
+        taskCell("?", TASK_COL_STATE, false, cw);
+        taskCell("Пр", TASK_COL_PRIO_E, true, cw);
+        taskCell("Стек", TASK_COL_STACK_E, true, cw);
+        taskCell("Итог", TASK_COL_SHARE_E, true, cw);
         s_taskRow.setTextColor(COL_HEADER, COL_BG);
         s_taskRow.setTextDatum(lgfx::middle_right);
         s_taskRow.drawString(buf, s_taskRow.width() - MARGIN, TASK_LINE_H / 2);
@@ -1653,7 +1687,7 @@ static void drawTasks(bool force)
 
     for (uint8_t r = 0; r < per; r++) {
         const int16_t y = top + (r + 1) * TASK_LINE_H;
-        if (n == 0 && r == 0 && SysInfo::taskOverflow()) {   // массив снимка мал — FreeRTOS не отдаёт ничего
+        if (s_taskListN == 0 && r == 0 && SysInfo::taskOverflow()) {   // массив снимка мал - FreeRTOS не отдаёт ничего
             snprintf(buf, sizeof(buf), "Задач больше %u", SYSINFO_TASKS_MAX);
             if (taskRowBegin(r + 1, buf)) {
                 s_taskRow.setTextColor(COL_ERR, COL_BG);
@@ -1662,10 +1696,15 @@ static void drawTasks(bool force)
             }
             continue;
         }
-        const SysInfo::TaskRow* t = SysInfo::task((uint8_t)(s_taskPage * per + r));
+        const uint16_t li = (uint16_t)s_taskPage * per + r;
+        const TaskListItem* it = li < s_taskListN ? &s_taskList[li] : nullptr;
+        const SysInfo::TaskRow* t = it && it->task != TASK_LIST_GROUP ? SysInfo::task(it->task) : nullptr;
         char name[TASK_NAME_COLS + 1], share[8];
-        if (t) {
-            strlcpy(name, t->name, sizeof(name));                  // имена задач — ASCII
+        if (it && !t) {                                            // заголовок группы
+            if (it->core < 0) snprintf(key, sizeof(key), "Любое ядро");
+            else              snprintf(key, sizeof(key), "Ядро %d: загрузка %u%%", it->core, SysInfo::cpuLoad((uint8_t)it->core));
+        } else if (t) {
+            strlcpy(name, t->name, sizeof(name));                  // имена задач - ASCII
             if (t->shareTenths >= TENTHS_PER_PCT) snprintf(share, sizeof(share), "%u%%", t->shareTenths / TENTHS_PER_PCT);
             else                                  snprintf(share, sizeof(share), "<1%%");
             snprintf(key, sizeof(key), "%s|%s|%u|%lu|%s", name, SysInfo::stateShort(t->state), t->prio,
@@ -1674,7 +1713,10 @@ static void drawTasks(bool force)
             key[0] = '\0';                                         // пустая строка (конец списка)
         }
         if (!taskRowBegin(r + 1, key)) continue;
-        if (t) {
+        if (it && !t) {
+            s_taskRow.setTextColor(COL_HEADER, COL_BG);
+            taskCell(key, 0, false, cw);
+        } else if (t) {
             s_taskRow.setTextColor(COL_WARN, COL_BG);
             taskCell(name, 0, false, cw);
             taskCell(SysInfo::stateShort(t->state), TASK_COL_STATE, false, cw);
@@ -1701,7 +1743,7 @@ static void drawMenuItem()
     else               snprintf(buf, sizeof(buf), "%s %u/%u", g.name, s_pos + 1, g.count);
     lcd.fillRect(0, 0, lcd.width() - (HAS_TOUCH ? EXIT_BTN_W : 0), HEADER_H + MARGIN * 2, COL_BG);
     lcd.setFont(FONT_SMALL);
-    trimToWidth(buf, lcd.width() - (HAS_TOUCH ? EXIT_BTN_W : 0) - 2 * MARGIN);   // длинное имя вентилятора — не под «Назад»
+    trimToWidth(buf, lcd.width() - (HAS_TOUCH ? EXIT_BTN_W : 0) - 2 * MARGIN);   // длинное имя вентилятора - не под «Назад»
     lcd.setTextDatum(lgfx::middle_left);
     lcd.setTextColor(COL_HEADER, COL_BG);
     lcd.drawString(buf, MARGIN, (HEADER_H + MARGIN * 2) / 2);
@@ -1713,7 +1755,7 @@ static void drawMenuItem()
         drawFitted(g.name, valueTop, bottom - valueTop, VALUE_FONTS, sizeof(VALUE_FONTS) / sizeof(VALUE_FONTS[0]), COL_WARN);
         return;
     }
-    if (it == Item::SysState) {   // на всю карточку, название — первой строкой
+    if (it == Item::SysState) {   // на всю карточку, название - первой строкой
         drawSysInfo(true);
         return;
     }
@@ -1732,7 +1774,7 @@ static void drawMenuItem()
         return;
     }
     itemValue(it, buf, sizeof(buf));
-    drawFitted(buf, valueTop, bottom - valueTop, VALUE_FONTS, sizeof(VALUE_FONTS) / sizeof(VALUE_FONTS[0]), s_inItem ? COL_OK : COL_WARN);   // TD: редактирование — зелёным
+    drawFitted(buf, valueTop, bottom - valueTop, VALUE_FONTS, sizeof(VALUE_FONTS) / sizeof(VALUE_FONTS[0]), s_inItem ? COL_OK : COL_WARN);   // TD: редактирование - зелёным
 }
 
 static void enterMenu()
@@ -1791,14 +1833,14 @@ static BtnEvent pollButton(Button& b, uint32_t now)
     return BtnEvent::None;
 }
 
-// Кнопки: A — BOOT (у T-Display сверху), B — IO14 (снизу); КН — коротко, ДН — долго (BTN_LONG_MS).
-//   Главный:  ДН Boot — меню; КН Boot — график; КН IO14 — режим скорости.
-//             В режиме скорости: КН Boot «+», КН IO14 «-», ДН IO14 — выход из режима, ДН Boot — меню.
-//   График:   КН IO14 — к старым, КН Boot — к новым, ДН Boot — масштаб (по кругу), ДН IO14 — выход.
-//   Меню:     КН Boot — след. группа / пункт, в редактировании «+»; КН IO14 — пред. / «-»;
-//             ДН Boot — войти (в группу / в редактирование пункта); ДН IO14 — назад (из пункта / группы / меню).
-// ES3C28P: только BOOT (B нет), основное управление — тач: главный — ДН меню; график — КН к старым, ДН выход;
-// меню — КН следующий, ДН назад / выход (как раньше).
+// Кнопки: A - BOOT (у T-Display сверху), B - IO14 (снизу); КН - коротко, ДН - долго (BTN_LONG_MS).
+//   Главный:  ДН Boot - меню; КН Boot - график; КН IO14 - режим скорости.
+//             В режиме скорости: КН Boot «+», КН IO14 «-», ДН IO14 - выход из режима, ДН Boot - меню.
+//   График:   КН IO14 - к старым, КН Boot - к новым, ДН Boot - масштаб (по кругу), ДН IO14 - выход.
+//   Меню:     КН Boot - след. группа / пункт, в редактировании «+»; КН IO14 - пред. / «-»;
+//             ДН Boot - войти (в группу / в редактирование пункта); ДН IO14 - назад (из пункта / группы / меню).
+// ES3C28P: только BOOT (B нет), основное управление - тач: главный - ДН меню; график - КН к старым, ДН выход;
+// меню - КН следующий, ДН назад / выход (как раньше).
 static Key buttonsToKey(uint32_t now)
 {
     constexpr bool TWO_BUTTONS = BTN_PIN_B >= 0;
@@ -1817,7 +1859,7 @@ static Key buttonsToKey(uint32_t now)
     } else {
         if (a == BtnEvent::Short) return s_inItem ? Key::Inc : Key::Next;
         if (b == BtnEvent::Short) return s_inItem ? Key::Dec : Key::Prev;
-        if (a == BtnEvent::Long)  return TWO_BUTTONS ? Key::Enter : Key::Exit;   // ES: BOOT долго — назад / выход
+        if (a == BtnEvent::Long)  return TWO_BUTTONS ? Key::Enter : Key::Exit;   // ES: BOOT долго - назад / выход
         if (b == BtnEvent::Long)  return Key::Exit;
     }
     return Key::None;
@@ -1827,7 +1869,7 @@ static Key buttonsToKey(uint32_t now)
 static Key touchZone(int32_t x, int32_t y)
 {
     const int32_t w = lcd.width();
-    if (s_screen == Screen::Main) {   // кнопки — над нижней строкой; касание в другом месте — показать кнопки
+    if (s_screen == Screen::Main) {   // кнопки - над нижней строкой; касание в другом месте - показать кнопки
         if (s_btnShown && y >= mainBtnY() && y < mainBtnY() + BTN_ROW_H) {
             switch (x / mainBtnW()) {
             case 0:  return Key::Inc;
@@ -1856,8 +1898,8 @@ static Key touchZone(int32_t x, int32_t y)
         }
     }
     if (s_screen == Screen::Menu && y < EXIT_BTN_H && x >= w - EXIT_BTN_W) return Key::Exit;
-    if (s_screen == Screen::Menu && !s_inGroup && y >= menuTop()) return Key::Inc;   // касание карточки группы — открыть
-    return Key::None;                                      // на графике — свайп
+    if (s_screen == Screen::Menu && !s_inGroup && y >= menuTop()) return Key::Inc;   // касание карточки группы - открыть
+    return Key::None;                                      // на графике - свайп
 }
 #endif
 
@@ -1868,7 +1910,7 @@ static Key touchToKey(uint32_t now)
     s_touch.lastPoll = now;
     lgfx::touch_point_t tp;
     if (lcd.getTouch(&tp, 1) == 0) {
-        if (s_touch.down && s_touch.drag && !s_touch.moved) {   // касание графика без сдвига — курсор
+        if (s_touch.down && s_touch.drag && !s_touch.moved) {   // касание графика без сдвига - курсор
             s_lastInput = now;
             histTap(s_touch.startX);
         }
@@ -1884,7 +1926,7 @@ static Key touchToKey(uint32_t now)
         if (Cfg::co2.debug) Serial.printf("touch x=%d y=%d key=%u\n", (int)tp.x, (int)tp.y, (unsigned)s_touch.key);
         s_touch.lastX = s_touch.startX = tp.x;
         s_touch.moved = false;
-        // автоповтор «-»/«+» — кроме коррекции скорости вентилятора и «+» в списке групп (он открывает группу);
+        // автоповтор «-»/«+» - кроме коррекции скорости вентилятора и «+» в списке групп (он открывает группу);
         // решается до обработки нажатия: после открытия группы удержание не должно менять значение
         s_touch.repeatOk = s_screen == Screen::History
                          ? (s_touch.key == Key::Prev || s_touch.key == Key::Next)
@@ -1892,7 +1934,7 @@ static Key touchToKey(uint32_t now)
                            !(s_screen == Screen::Menu && (!s_inGroup || curItem() == Item::FanSpeed));
         return s_touch.key;
     }
-    if (s_touch.drag) {   // свайп: палец вправо — к более старым данным
+    if (s_touch.drag) {   // свайп: палец вправо - к более старым данным
         if (!s_touch.moved) {
             if (tp.x - s_touch.startX <= HIST_TAP_MAX_PX && s_touch.startX - tp.x <= HIST_TAP_MAX_PX) return Key::None;
             s_touch.moved = true;      // это свайп, а не выбор точки
@@ -1923,7 +1965,7 @@ static void handleKey(Key k)
     if (s_screen == Screen::Main) {
         switch (k) {
         case Key::Dec:
-        case Key::Inc: {   // общая поправка — только при активной панели (ES — кнопки, TD — режим скорости)
+        case Key::Inc: {   // общая поправка - только при активной панели (ES - кнопки, TD - режим скорости)
             if (!s_btnShown) break;
             int8_t d = k == Key::Inc ? 1 : -1;
             Cfg::vars.speedOverride = (int8_t)clampI(Cfg::vars.speedOverride + d, -FAN_SPEED_MAX, FAN_SPEED_MAX);
@@ -1959,7 +2001,7 @@ static void handleKey(Key k)
         switch (k) {
         case Key::Dec:  changeItem(curItem(), -1); break;
         case Key::Inc:  changeItem(curItem(), +1); break;
-        case Key::Exit: s_inItem = false; s_resetArmed = false; drawMenuStatic(); break;   // ДН IO14 — к пунктам
+        case Key::Exit: s_inItem = false; s_resetArmed = false; drawMenuStatic(); break;   // ДН IO14 - к пунктам
         default: return;
         }
         drawMenuItem();
@@ -1971,7 +2013,7 @@ static void handleKey(Key k)
     case Key::Next:  s_pos = (uint8_t)((s_pos + 1) % n);     s_resetArmed = false; break;
     case Key::Dec:   changeItem(curItem(), -1); break;      // ES: «-» / «+» сразу меняют значение
     case Key::Inc:   changeItem(curItem(), +1); break;
-    case Key::Enter:                                         // TD: ДН Boot — редактирование (у карточек-сведений нет)
+    case Key::Enter:                                         // TD: ДН Boot - редактирование (у карточек-сведений нет)
         if (isInfoItem(curItem())) return;
         s_inItem = true; drawMenuStatic(); break;
     case Key::Exit:  s_inGroup = false; s_resetArmed = false; drawMenuStatic(); break;   // назад к группам
@@ -1999,7 +2041,7 @@ static void touchCalibrate()
         return;
     }
     if (!touchChipPresent()) {   // без чипа calibrateTouch() ждала бы вечно
-        Serial.println("Тач: FT6336G не отвечает — калибровка пропущена");
+        Serial.println("Тач: FT6336G не отвечает - калибровка пропущена");
         return;
     }
     const int16_t cx = lcd.width() / 2, cy = lcd.height() / 2;
@@ -2047,8 +2089,8 @@ void setRadioReport(bool ok, const char* report)
     drawLine(report, HEADER_H, INFO_LINE_H * 3, FONT_SMALL, ok ? COL_OK : COL_ERR);
 }
 
-// Яркость подсветки: днём / ночью (ночной режим — расписание или ручной переключатель, как у вентиляторов).
-// В меню на пунктах яркости — сразу редактируемое значение (предпросмотр).
+// Яркость подсветки: днём / ночью (ночной режим - расписание или ручной переключатель, как у вентиляторов).
+// В меню на пунктах яркости - сразу редактируемое значение (предпросмотр).
 static void applyBrightness()
 {
     uint8_t pct;
@@ -2065,7 +2107,7 @@ static void applyBrightness()
 void update(uint32_t now)
 {
     applyBrightness();
-    if (s_lastDraw == 0) {   // первый вызов — главный экран
+    if (s_lastDraw == 0) {   // первый вызов - главный экран
         s_lastDraw = now;
         drawMainStatic();
     }
@@ -2079,15 +2121,15 @@ void update(uint32_t now)
     if (s_screen == Screen::Menu) {
         const uint32_t idleMax = s_inGroup && MENU_GROUPS[s_group].items == G_SYSTEM ? UI_SYSTEM_TIMEOUT_MS : UI_SETUP_TIMEOUT_MS;
         if (now - s_lastInput >= idleMax) { exitMenu(); return; }
-        if (curItem() == Item::NetInfo && now - s_lastDraw >= UI_REFRESH_MS) {   // состояние сети — вживую
+        if (curItem() == Item::NetInfo && now - s_lastDraw >= UI_REFRESH_MS) {   // состояние сети - вживую
             s_lastDraw = now;
             drawNetInfo(false);
         }
-        if (curItem() == Item::SysState && now - s_lastDraw >= UI_REFRESH_MS) {  // состояние системы — вживую
+        if (curItem() == Item::SysState && now - s_lastDraw >= UI_REFRESH_MS) {  // состояние системы - вживую
             s_lastDraw = now;
             drawSysInfo(false);
         }
-        if (curItem() == Item::Tasks && s_inGroup) drawTasks(false);   // задачи — по новому снимку SysInfo
+        if (curItem() == Item::Tasks && s_inGroup) drawTasks(false);   // задачи - по новому снимку SysInfo
         return;
     }
     if (s_screen == Screen::History) {

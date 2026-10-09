@@ -1,10 +1,10 @@
-// sht40.cpp — драйвер Sensirion SHT40 (SHT4x) по I2C: температура и влажность.
-// Шина — та же, что у K22 / тача (I2C_PORT, драйвер LovyanGFX lgfx::i2c, K22_I2C_HZ = 100 кГц).
-// Адрес: 0x44 (SHT40-AD1B), варианты 0x45 / 0x46 — ищутся по ACK при первом измерении (SHT40_ADDRS).
+// sht40.cpp - драйвер Sensirion SHT40 (SHT4x) по I2C: температура и влажность.
+// Шина - та же, что у K22 / тача (I2C_PORT, драйвер LovyanGFX lgfx::i2c, K22_I2C_HZ = 100 кГц).
+// Адрес: 0x44 (SHT40-AD1B), варианты 0x45 / 0x46 - ищутся по ACK при первом измерении (SHT40_ADDRS).
 // Измерение (даташит SHT4x): команда 0xFD (высокая точность) -> ожидание до 8.2 мс (SHT40_MEASURE_MS) ->
 // 6 байт: T MSB, T LSB, CRC, RH MSB, RH LSB, CRC. CRC-8: полином 0x31, начальное 0xFF, без отражения.
 // T = -45 + 175 * S_T / 65535 °C;  RH = -6 + 125 * S_RH / 65535 %, ограничить 0..100.
-// Неблокирующий: запись команды (~0.3 мс) и чтение (~0.7 мс) — разные вызовы poll(), ожидание — по millis().
+// Неблокирующий: запись команды (~0.3 мс) и чтение (~0.7 мс) - разные вызовы poll(), ожидание - по millis().
 #include "temp_backend.h"
 #include "config.h"
 #include "lgfx_include.h"
@@ -27,7 +27,7 @@ constexpr uint8_t  ADDR_COUNT    = sizeof(SHT40_ADDRS) / sizeof(SHT40_ADDRS[0]);
 enum class State : uint8_t { Command, Measuring };
 
 static State    s_state = State::Command;
-static uint8_t  s_addr  = 0;            // найденный адрес (0 — ещё не найден)
+static uint8_t  s_addr  = 0;            // найденный адрес (0 - ещё не найден)
 static uint32_t s_cmdTime = 0;
 
 static bool sendCommand(uint8_t addr)
@@ -48,11 +48,11 @@ static uint8_t crc8(const uint8_t* d, size_t n)
 
 void attach()
 {
-    lgfx::i2c::init(I2C_PORT, I2C_PIN_SDA, I2C_PIN_SCL);   // на ES3C28P / с K22 — уже инициализирована
+    lgfx::i2c::init(I2C_PORT, I2C_PIN_SDA, I2C_PIN_SCL);   // на ES3C28P / с K22 - уже инициализирована
     s_addr = 0;
 }
 
-void detach() {}   // шина общая — остаётся K22 и тачу
+void detach() {}   // шина общая - остаётся K22 и тачу
 
 void start(uint32_t) { s_state = State::Command; }
 
@@ -63,7 +63,7 @@ TempPoll poll(uint32_t now, TempErr& err, int16_t& tenths, int8_t& rh)
     rh = -1;
     if (s_state == State::Command) {
         bool ok = s_addr != 0 && sendCommand(s_addr);
-        for (uint8_t i = 0; !ok && i < ADDR_COUNT; i++) {   // адрес неизвестен или датчик пропал — поиск
+        for (uint8_t i = 0; !ok && i < ADDR_COUNT; i++) {   // адрес неизвестен или датчик пропал - поиск
             ok = sendCommand(SHT40_ADDRS[i]);
             if (ok) s_addr = SHT40_ADDRS[i];
         }

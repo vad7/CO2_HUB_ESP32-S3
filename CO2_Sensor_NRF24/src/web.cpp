@@ -1,18 +1,18 @@
-// web.cpp — HTTP-сервер (esp_http_server, своя задача). Перенос web_int_vars.c / web_int_callbacks.c хаба.
-//   GET  /<файл>          — статические страницы и скрипты (встроены в прошивку, gzip; без подстановок);
-//   GET  /api/vars        — переменные одним JSON-объектом, чанками по группам: ?g=main,fans — только эти
-//                           группы (+ sys всегда), без g — все; ?cfg_fan_=N — выбранный вентилятор;
-//   POST /api/set         — запись переменных, тело application/x-www-form-urlencoded (UTF-8, %XX);
-//   GET  /api/set?a=b&... — то же из строки запроса (для ручной проверки и скриптов);
-//   GET  /history.csv     — история CO2;
-//   POST /api/ota         — обновление прошивки: тело — firmware.bin (application/octet-stream), затем перезапуск.
-// Пароль настроек (net.webPass, HTTP Basic, имя — любое; пустой — не запрашивается): страницы настроек
-// (AUTH_PAGES), /api/ota и /api/set — кроме оперативного управления с главной (OPEN_VARS: поправка скорости,
+// web.cpp - HTTP-сервер (esp_http_server, своя задача). Перенос web_int_vars.c / web_int_callbacks.c хаба.
+//   GET  /<файл>          - статические страницы и скрипты (встроены в прошивку, gzip; без подстановок);
+//   GET  /api/vars        - переменные одним JSON-объектом, чанками по группам: ?g=main,fans - только эти
+//                           группы (+ sys всегда), без g - все; ?cfg_fan_=N - выбранный вентилятор;
+//   POST /api/set         - запись переменных, тело application/x-www-form-urlencoded (UTF-8, %XX);
+//   GET  /api/set?a=b&... - то же из строки запроса (для ручной проверки и скриптов);
+//   GET  /history.csv     - история CO2;
+//   POST /api/ota         - обновление прошивки: тело - firmware.bin (application/octet-stream), затем перезапуск.
+// Пароль настроек (net.webPass, HTTP Basic, имя - любое; пустой - не запрашивается): страницы настроек
+// (AUTH_PAGES), /api/ota и /api/set - кроме оперативного управления с главной (OPEN_VARS: поправка скорости,
 // ночь, коррекция вентилятора). Браузер спрашивает пароль один раз и дальше шлёт его сам.
-// Строки (имена вентиляторов, SSID, пароль) приходят в UTF-8 с процентным кодированием (браузер —
-// URLSearchParams / encodeURIComponent), уходят в JSON с экранированием. Обрезка по размеру поля —
-// по границе символа UTF-8 (кириллица — 2 байта на букву).
-// Доступ к настройкам и состоянию — под Cfg::lock() (loop() работает параллельно).
+// Строки (имена вентиляторов, SSID, пароль) приходят в UTF-8 с процентным кодированием (браузер -
+// URLSearchParams / encodeURIComponent), уходят в JSON с экранированием. Обрезка по размеру поля -
+// по границе символа UTF-8 (кириллица - 2 байта на букву).
+// Доступ к настройкам и состоянию - под Cfg::lock() (loop() работает параллельно).
 #include "web.h"
 #include <Arduino.h>
 #include <esp_http_server.h>
@@ -43,6 +43,10 @@ constexpr size_t   LINE_MAX_LEN    = 192;
 constexpr size_t   REPORT_LEN      = 200;
 constexpr size_t   JSON_RESP_LEN   = 160;
 constexpr uint32_t S_PER_MIN       = 60;
+constexpr long     HHMM_DIV        = 100;    // время ночи ЧЧММ: часы * 100 + минуты
+constexpr long     HOURS_PER_DAY   = 24;
+constexpr long     MIN_PER_HOUR    = 60;
+constexpr char     HHMM_SEP        = ':';    // на веб - «ЧЧ:ММ»
 constexpr int16_t  TENTHS_PER_DEG  = 10;     // температура в 0.1 °C
 constexpr uint32_t US_PER_MS       = 1000;   // время задач FreeRTOS: мкс -> мс
 constexpr const char* INDEX_FILE   = "index.htm";
@@ -58,9 +62,9 @@ constexpr const char* AUTH_BASIC   = "Basic ";
 constexpr size_t      AUTH_HDR_MAX = 128;              // «Basic » + base64(имя:пароль), пароль до 32 байт
 constexpr size_t      AUTH_DEC_MAX = 96;
 constexpr const char* FAN_PARAM    = "cfg_fan_";       // выбранный вентилятор (Web_cfg_fan_ хаба)
-constexpr const char* GROUPS_PARAM = "g";              // /api/vars?g=main,fans — группы переменных
+constexpr const char* GROUPS_PARAM = "g";              // /api/vars?g=main,fans - группы переменных
 constexpr const char* GROUPS_SEP   = ",";
-constexpr size_t      VARS_GROUPS_ARG_MAX = 96;        // строка групп (все 10 имён — ~45 байт)
+constexpr size_t      VARS_GROUPS_ARG_MAX = 96;        // строка групп (все 10 имён - ~45 байт)
 constexpr const char* MIME_JSON    = "application/json; charset=utf-8";
 constexpr const char* CACHE_STATIC = "max-age=86400";
 constexpr const char* CACHE_NONE   = "no-cache";
@@ -74,6 +78,9 @@ static char s_radioReport[REPORT_LEN] = "";
 struct ReqCtx {
     uint8_t fan;
     bool saveCo2, saveFans, saveVars, saveNet, recalcAll, reconnect, historyResize, restart;
+    bool abcRead, abcWrite, abcHasPeriod, abcHasOn, abcRejected;   // ABC датчика CO2 (co2_abc_*)
+    long abcPeriod;
+    bool abcOn;
     char unknown[VAR_NAME_MAX];            // первое неизвестное имя (ответ /api/set)
 };
 
@@ -161,7 +168,7 @@ private:
         m_comma = true;
         if (k) { quoted(k); raw(":"); }
     }
-    // Экранирование JSON: '"', '\', управляющие символы; байты UTF-8 — как есть
+    // Экранирование JSON: '"', '\', управляющие символы; байты UTF-8 - как есть
     void quoted(const char* s)
     {
         raw("\"");
@@ -188,7 +195,7 @@ static const WebFile* findFile(const char* path)
     return nullptr;
 }
 
-// Число: "0x.." — шестнадцатеричное, иначе десятичное (ahextoul хаба; "0730" — не восьмеричное)
+// Число: "0x.." - шестнадцатеричное, иначе десятичное (ahextoul хаба; "0730" - не восьмеричное)
 static long parseNum(const char* s)
 {
     while (*s == ' ') s++;
@@ -206,7 +213,7 @@ static int hexVal(char c)
     return -1;
 }
 
-// application/x-www-form-urlencoded: '+' — пробел, %XX — байт (UTF-8 собирается из байтов)
+// application/x-www-form-urlencoded: '+' - пробел, %XX - байт (UTF-8 собирается из байтов)
 static void urlDecode(char* s)
 {
     char* d = s;
@@ -222,26 +229,31 @@ static void urlDecode(char* s)
     *d = '\0';
 }
 
-/**
- * @brief Parses a time string in "HHMM" format and converts it to a uint16_t.
- *
- * This function extracts a numeric value from the given string using parseNum(),
- * then validates it as a proper time representation where the hours (HH) are
- * less than 24 and the minutes (MM) are less than 60.
- *
- * @param s A pointer to a null-terminated character string representing the time in "HHMM" format.
- * @return uint16_t The parsed time as a 16-bit unsigned integer if the format and
- *                  values are valid (0 <= HH < 24 and 0 <= MM < 60).
- *                  Returns 0 if the parsed value is negative or if the time is invalid.
- */
-static uint16_t parseHhmm(const char* s)
+// Время ночи: хранится числом ЧЧММ (2230), на веб - «22:30». Ввод: «22:30», «7:05», «2230», «730» (= 07:30).
+// Неверное (часы > 23, минуты > 59, не число, пусто) - cur без изменений.
+static uint16_t parseHhmm(const char* s, uint16_t cur)
 {
-    long v = parseNum(s);
-    return (v >= 0 && v / 100 < 24 && v % 100 < 60) ? (uint16_t)v : 0;
+    while (*s == ' ') s++;
+    char* end = nullptr;
+    const long a = strtol(s, &end, 10);
+    if (end == s || a < 0) return cur;
+    long h, m;
+    if (*end == HHMM_SEP) {                       // ЧЧ:ММ
+        const char* ms = end + 1;
+        m = strtol(ms, &end, 10);
+        if (end == ms) return cur;
+        h = a;
+    } else {                                      // ЧЧММ
+        h = a / HHMM_DIV;
+        m = a % HHMM_DIV;
+    }
+    while (*end == ' ') end++;
+    if (*end != '\0' || h >= HOURS_PER_DAY || m < 0 || m >= MIN_PER_HOUR) return cur;
+    return (uint16_t)(h * HHMM_DIV + m);
 }
 
 // ------------------------------------------------------------------ запись переменных (web_int_vars.c)
-// false — имя неизвестно
+// false - имя неизвестно
 static bool setVar(ReqCtx& c, const char* name, const char* val)
 {
     const long v = parseNum(val);
@@ -265,12 +277,11 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
         const uint16_t p = (uint16_t)clampL(v, TRANSMIT_PERIOD_MIN_S, TRANSMIT_PERIOD_MAX_S);
         if (p != co2.transmitPeriodS) { co2.transmitPeriodS = p; c.historyResize = true; }   // записей = сутки / период
     }
-    else if (!strcmp(name, "cfg_co2_night_start"))      { co2.nightStart   = parseHhmm(val); c.recalcAll = true; }
-    else if (!strcmp(name, "cfg_co2_night_end"))        { co2.nightEnd     = parseHhmm(val); c.recalcAll = true; }
-    else if (!strcmp(name, "cfg_co2_night_start_wd"))   { co2.nightStartWd = parseHhmm(val); c.recalcAll = true; }
-    else if (!strcmp(name, "cfg_co2_night_end_wd"))     { co2.nightEndWd   = parseHhmm(val); c.recalcAll = true; }
+    else if (!strcmp(name, "cfg_co2_night_start"))      { co2.nightStart   = parseHhmm(val, co2.nightStart); c.recalcAll = true; }
+    else if (!strcmp(name, "cfg_co2_night_end"))        { co2.nightEnd     = parseHhmm(val, co2.nightEnd); c.recalcAll = true; }
+    else if (!strcmp(name, "cfg_co2_night_start_wd"))   { co2.nightStartWd = parseHhmm(val, co2.nightStartWd); c.recalcAll = true; }
+    else if (!strcmp(name, "cfg_co2_night_end_wd"))     { co2.nightEndWd   = parseHhmm(val, co2.nightEndWd); c.recalcAll = true; }
     else if (!strcmp(name, "cfg_co2_night_max"))        { co2.nightMaxSpeed = (uint8_t)clampL(v, 0, FAN_SPEED_MAX); c.recalcAll = true; }
-    else if (!strcmp(name, "cfg_co2_csv_delim"))        co2.csvDelimiter = (val[0] > ' ' && (uint8_t)val[0] < 0x80) ? val[0] : CSV_DELIMITER_DEF;
     else if (!strcmp(name, "cfg_co2_refresh_t"))        co2.pageRefreshMs = (uint16_t)clampL(v, 0, UINT16_MAX);
     else if (!strcmp(name, "cfg_co2_bright_day"))       { co2.brightDayPct   = (uint8_t)clampL(v, BRIGHT_MIN_PCT, BRIGHT_MAX_PCT); c.saveCo2 = true; }
     else if (!strcmp(name, "cfg_co2_bright_night"))     { co2.brightNightPct = (uint8_t)clampL(v, BRIGHT_MIN_PCT, BRIGHT_MAX_PCT); c.saveCo2 = true; }
@@ -282,8 +293,9 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "cfg_co2_radio_mode"))       co2.radioMode = (uint8_t)clampL(v, 0, RADIO_MODE_COUNT - 1);   // применяется сразу
     else if (!strcmp(name, "cfg_co2_passive_ch"))       co2.passiveChannel = (uint8_t)clampL(v, 0, RF_CHANNEL_MAX);
     else if (!strcmp(name, "cfg_co2_radio_reset"))      co2.radioResetS = (uint16_t)clampL(v, 0, UINT16_MAX);
+    else if (!strcmp(name, "cfg_co2_poll"))             co2.co2PollS = (uint8_t)clampL(v, CO2_POLL_MIN_S, CO2_POLL_MAX_S);
     else if (!strcmp(name, "cfg_temp_period"))          co2.tempPeriodS = (uint8_t)clampL(v, TEMP_PERIOD_MIN_S, TEMP_PERIOD_MAX_S);
-    else if (!strcmp(name, "cfg_temp_sensor"))          co2.tempSensor  = (uint8_t)clampL(v, 0, TEMP_SENSOR_COUNT - 1);   // DS18B20 без вывода — sanitize() -> нет
+    else if (!strcmp(name, "cfg_temp_sensor"))          co2.tempSensor  = (uint8_t)clampL(v, 0, TEMP_SENSOR_COUNT - 1);   // DS18B20 без вывода - sanitize() -> нет
     else if (!strcmp(name, "cfg_co2_save"))             c.saveCo2  = v == 1;
     else if (!strcmp(name, "cfg_co2_save_fans"))        { c.saveFans = v == 1; c.recalcAll = true; }
     // --- cfg_fan_* (вентилятор c.fan; FAN_PARAM должен идти раньше полей вентилятора) ---
@@ -309,8 +321,8 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "net_ssid"))                 copyUtf8(Cfg::net.ssid, val, sizeof(Cfg::net.ssid));
     else if (!strcmp(name, "net_pass"))                 { if (val[0]) copyUtf8(Cfg::net.pass, val, sizeof(Cfg::net.pass)); }
     else if (!strcmp(name, "net_ap_ssid"))              { if (val[0]) copyUtf8(Cfg::net.apSsid, val, sizeof(Cfg::net.apSsid)); }
-    else if (!strcmp(name, "net_ap_pass"))              { if (strlen(val) >= NET_AP_PASS_MIN) copyUtf8(Cfg::net.apPass, val, sizeof(Cfg::net.apPass)); }   // короче — не меняется
-    // пароль настроек: пустое поле — не менять; «без пароля» (идёт в форме после поля) — стереть
+    else if (!strcmp(name, "net_ap_pass"))              { if (strlen(val) >= NET_AP_PASS_MIN) copyUtf8(Cfg::net.apPass, val, sizeof(Cfg::net.apPass)); }   // короче - не меняется
+    // пароль настроек: пустое поле - не менять; «без пароля» (идёт в форме после поля) - стереть
     else if (!strcmp(name, "net_web_pass"))             { if (val[0]) copyUtf8(Cfg::net.webPass, val, sizeof(Cfg::net.webPass)); }
     else if (!strcmp(name, "net_web_nopass"))           { if (v == 1) Cfg::net.webPass[0] = '\0'; }
     else if (!strcmp(name, "net_web_save"))             c.saveNet = v == 1;   // без переподключения Wi-Fi
@@ -321,13 +333,18 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "net_forget"))               { if (v == 1) { Cfg::net.ssid[0] = '\0'; Cfg::net.pass[0] = '\0'; c.saveNet = c.reconnect = true; } }
     else if (!strcmp(name, "net_save"))                 { c.saveNet = v == 1; c.reconnect = c.saveNet; }
     // --- система ---
+    // --- ABC датчика CO2: выполняет Co2Sensor::update(), итог - группа abc ---
+    else if (!strcmp(name, "co2_abc_read"))             { c.abcRead = v == 1; }
+    else if (!strcmp(name, "co2_abc_period"))           { c.abcHasPeriod = true; c.abcPeriod = v; }
+    else if (!strcmp(name, "co2_abc_on"))               { c.abcHasOn = true; c.abcOn = v != 0; }
+    else if (!strcmp(name, "co2_abc_write"))            { c.abcWrite = v == 1; }
     else if (!strcmp(name, "sys_touch_recal"))          { if (v == 1) { Cfg::clearTouchCal(); c.restart = true; } }
     else if (!strcmp(name, "sys_time_set"))             Net::setTimeManual((time_t)v);   // UTC, с (от браузера)
     else return false;
     return true;
 }
 
-// Разбор "a=b&c=d" (urlencoded), onlyName != nullptr — только эта переменная
+// Разбор "a=b&c=d" (urlencoded), onlyName != nullptr - только эта переменная
 static void applyPairs(ReqCtx& c, char* s, const char* onlyName)
 {
     while (s && *s) {
@@ -358,13 +375,20 @@ static void finishVars(ReqCtx& c)
     if (c.saveVars) Cfg::saveVars();
     if (c.saveNet)  Cfg::saveNet();
     if (c.reconnect) Net::requestReconnect();
+    if (c.abcWrite) {   // только переданные (изменённые на странице) поля
+        const bool periodOk = !c.abcHasPeriod || (c.abcPeriod >= ABC_PERIOD_MIN_H && c.abcPeriod <= ABC_PERIOD_MAX_H);
+        c.abcRejected = !periodOk || !Co2Sensor::abcRequestWrite(c.abcHasPeriod ? (int32_t)c.abcPeriod : -1,
+                                                                 c.abcHasOn ? (int8_t)c.abcOn : (int8_t)-1);
+    } else if (c.abcRead) {
+        c.abcRejected = !Co2Sensor::abcRequestRead();
+    }
 }
 
 // ------------------------------------------------------------------ чтение переменных (web_int_callbacks.c)
-// Все переменные страниц одним объектом. Имена — те же, что в setVar (поля форм заполняются по имени).
+// Все переменные страниц одним объектом. Имена - те же, что в setVar (поля форм заполняются по имени).
 // ------------------------------------------------------------------ /api/vars по группам
 // Страница запрашивает только нужные группы: /api/vars?g=main,fans (атрибут <body data-groups> в web/*.htm);
-// без g — все. sys — всегда (подвал, период опроса). Каждая переменная — ровно в одной группе
+// без g - все. sys - всегда (подвал, период опроса). Каждая переменная - ровно в одной группе
 // (проверяет Scripts/check_web.js: и это, и что странице хватает её групп).
 // Группа собирается под CfgLock в s_json и уходит чанком без замка (медленный клиент не держит loop()).
 static void varsSys(Json& j, const ReqCtx&)
@@ -373,7 +397,7 @@ static void varsSys(Json& j, const ReqCtx&)
     j.str ("sys_build",      FW_BUILD_DATE);
     j.str ("sys_author",     FW_AUTHOR);
     j.str ("sys_board",      BOARD_NAME);
-    j.str ("sys_fw_board",   FW_BOARD_ID);   // OTA: файл firmware_<плата>_<датчик>_<версия>.bin — проверка на странице
+    j.str ("sys_fw_board",   FW_BOARD_ID);   // OTA: файл firmware_<плата>_<датчик>_<версия>.bin - проверка на странице
     j.str ("sys_fw_id",      FW_ID);         //   плата_датчик этой прошивки
     j.str ("sys_sensor",     CO2_SENSOR_NAME);
     j.num ("sys_mactime",    (long)Net::bootEpoch());
@@ -397,7 +421,7 @@ static void varsMain(Json& j, const ReqCtx&)
     j.num ("fan_speed_previous", FanControl::speedPrevious());
     j.unum("fsp_time_def",   FORCE_MINUTES_DEF);
     j.num ("cfg_vars_fans_speed_ov", Cfg::vars.speedOverride);
-    // датчик температуры (temp_en = 0 — не выбран: строки на главной скрываются)
+    // датчик температуры (temp_en = 0 - не выбран: строки на главной скрываются)
     j.num ("temp_en",        Cfg::co2.tempSensor != TEMP_SENSOR_NONE ? 1 : 0);
     if (TempSensor::valid() && TempSensor::humidity() >= 0) j.num("temp_rh", TempSensor::humidity());
     else                                                      j.str("temp_rh", "");
@@ -420,9 +444,9 @@ static void varsFans(Json& j, const ReqCtx&)
         j.beginObj();
         j.str ("name", fi.name);
         j.unum("fl",   fi.flags);
-        j.unum("fspt", st.forcedTimeoutS);   // до конца принудительной скорости, с (0 — без ограничения)
+        j.unum("fspt", st.forcedTimeoutS);   // до конца принудительной скорости, с (0 - без ограничения)
         j.unum("spc",  st.speedCurrent);
-        j.unum("tst",  st.txStatus);         // > 1 — ошибка передачи
+        j.unum("tst",  st.txStatus);         // > 1 - ошибка передачи
         j.num ("ttm",  (long)Net::epochFromUptime(st.txOkUptimeS));
         if (co2.radioMode == RADIO_PASSIVE) {   // состояние, сообщённое вентилятором (пассивный режим)
             j.unum("rst", st.remoteStatus);
@@ -456,10 +480,10 @@ static void varsCfg(Json& j, const ReqCtx&)
         n += snprintf(tmp + n, sizeof(tmp) - n, "%u%s", co2.thresholds[i], i < FAN_SPEED_MAX - 1 ? "," : "");
     j.str ("cfg_co2_fans_speed_th",    tmp);
     j.unum("cfg_co2_fans_speed_delta", co2.speedDelta);
-    j.strf("cfg_co2_night_start",      "%04u", co2.nightStart);
-    j.strf("cfg_co2_night_end",        "%04u", co2.nightEnd);
-    j.strf("cfg_co2_night_start_wd",   "%04u", co2.nightStartWd);
-    j.strf("cfg_co2_night_end_wd",     "%04u", co2.nightEndWd);
+    j.strf("cfg_co2_night_start",      "%02u%c%02u", (unsigned)(co2.nightStart / HHMM_DIV), HHMM_SEP, (unsigned)(co2.nightStart % HHMM_DIV));   // «22:30»
+    j.strf("cfg_co2_night_end",        "%02u%c%02u", (unsigned)(co2.nightEnd / HHMM_DIV), HHMM_SEP, (unsigned)(co2.nightEnd % HHMM_DIV));
+    j.strf("cfg_co2_night_start_wd",   "%02u%c%02u", (unsigned)(co2.nightStartWd / HHMM_DIV), HHMM_SEP, (unsigned)(co2.nightStartWd % HHMM_DIV));
+    j.strf("cfg_co2_night_end_wd",     "%02u%c%02u", (unsigned)(co2.nightEndWd / HHMM_DIV), HHMM_SEP, (unsigned)(co2.nightEndWd % HHMM_DIV));
     j.unum("cfg_co2_night_max",        co2.nightMaxSpeed);
     j.unum("cfg_co2_bright_day",       co2.brightDayPct);
     j.unum("cfg_co2_bright_night",     co2.brightNightPct);
@@ -467,13 +491,13 @@ static void varsCfg(Json& j, const ReqCtx&)
     j.num ("temp_ds_ok",               TEMP_DS18B20_AVAILABLE ? 1 : 0);   // есть вывод под DS18B20
     j.unum("cfg_temp_sensor",          co2.tempSensor);
     j.unum("cfg_temp_period",          co2.tempPeriodS);
+    j.unum("cfg_co2_poll",             co2.co2PollS);
 }
 
-// История: буферы (фактически выделено, записей, лимит памяти), срок, период, разделитель CSV
+// История: буферы (фактически выделено, записей, лимит памяти), срок, период
 static void varsHist(Json& j, const ReqCtx&)
 {
     const CfgCo2& co2 = Cfg::co2;
-    char tmp[2] = { co2.csvDelimiter, '\0' };
     j.unum("history_count",   History::count());
     j.unum("hist_cap",        History::capacity());
     j.unum("hist_wanted",     History::wanted());
@@ -485,7 +509,6 @@ static void varsHist(Json& j, const ReqCtx&)
     j.unum("hist_rec_bytes",  HISTORY_CO2_REC_BYTES + (co2.tempSensor != TEMP_SENSOR_NONE ? HISTORY_TEMP_REC_BYTES : 0));
     j.unum("cfg_hist_days",   co2.historyDays);
     j.unum("cfg_co2_period",  co2.transmitPeriodS);
-    j.str ("cfg_co2_csv_delim", tmp);
 }
 
 // Процессор: загрузка ядер, температура кристалла, задачи FreeRTOS
@@ -499,7 +522,7 @@ static void varsCpu(Json& j, const ReqCtx&)
     } else {
         j.str ("chip_temp",   "--");
     }
-    // задачи: [имя, состояние (SysInfo::TaskState), приоритет, ядро (-1 — любое),
+    // задачи: [имя, состояние (SysInfo::TaskState), приоритет, ядро (-1 - любое),
     //          мин. свободный стек (байт), время с запуска (мс), доля ЦП с запуска (0,1 %)]
     j.unum("rtos_stack_warn", TASK_STACK_WARN_B);
     j.num ("rtos_overflow",   SysInfo::taskOverflow() ? 1 : 0);
@@ -530,6 +553,15 @@ static void varsStatus(Json& j, const ReqCtx&)
     j.str ("radio_regs",  s_radioReport);
 }
 
+// ABC датчика CO2: abc_state - 0 не читали, 1 идёт обмен, 2 готово, 3 ошибка (Co2Sensor::AbcState)
+static void varsAbc(Json& j, const ReqCtx&)
+{
+    j.unum("abc_state",  (unsigned)Co2Sensor::abcState());
+    j.unum("abc_period", Co2Sensor::abcPeriodH());
+    j.unum("abc_on",     Co2Sensor::abcOn() ? 1 : 0);
+    j.str ("abc_msg",    Co2Sensor::abcMessage());
+}
+
 // Сеть и часы
 static void varsNet(Json& j, const ReqCtx&)
 {
@@ -543,7 +575,7 @@ static void varsNet(Json& j, const ReqCtx&)
     j.unum("net_ap_delay", Cfg::net.apDelayMin);
     j.unum("net_ntp_period", Cfg::net.ntpPeriodMin);
     j.str ("net_ap_ssid", Cfg::net.apSsid);   // пароли (роутера, точки доступа, веба) не отдаются
-    const char* ap = Net::apSsid();           // применённое имя (меняется под CfgLock — как и это чтение)
+    const char* ap = Net::apSsid();           // применённое имя (меняется под CfgLock - как и это чтение)
     const uint32_t offS = Net::offlineS(), apS = (uint32_t)Cfg::net.apDelayMin * S_PER_MIN;
     switch (Net::mode()) {
     case Net::Mode::Station:      j.str("net_mode", "подключено к Wi-Fi"); break;
@@ -587,7 +619,7 @@ struct VarGroup {
     const char* name;
     void (*write)(Json& j, const ReqCtx& c);
 };
-// Порядок — порядок в ответе; sys — первой (всегда)
+// Порядок - порядок в ответе; sys - первой (всегда)
 static const VarGroup VAR_GROUPS[] = {
     { "sys",    varsSys    },
     { "main",   varsMain   },
@@ -597,11 +629,12 @@ static const VarGroup VAR_GROUPS[] = {
     { "hist",   varsHist   },
     { "cpu",    varsCpu    },
     { "status", varsStatus },
+    { "abc",    varsAbc    },
     { "net",    varsNet    },
     { "fan",    varsFan    },
 };
 constexpr uint8_t VAR_GROUP_COUNT = sizeof(VAR_GROUPS) / sizeof(VAR_GROUPS[0]);
-static_assert(VAR_GROUP_COUNT <= 16, "маска групп — uint16_t");
+static_assert(VAR_GROUP_COUNT <= 16, "маска групп - uint16_t");
 constexpr uint16_t VAR_GROUPS_ALL = (uint16_t)((1u << VAR_GROUP_COUNT) - 1);
 constexpr uint16_t VAR_GROUP_SYS  = 1u << 0;
 
@@ -616,15 +649,14 @@ static uint16_t parseGroups(char* s)
     return mask;
 }
 
-// history.csv: от новой записи к старой, "yyyy-mm-dd hh:mm:ss<разд.>ppm<разд.>температура" (web_get_history хаба
-// + столбец temp: °C с точкой, пусто — нет данных)
+// history.csv: от новой записи к старой, "yyyy-mm-dd hh:mm:ss;ppm;температура" (web_get_history хаба + столбец temp:
+// °C, дробная часть через запятую; пусто - нет данных). Разделители - HISTORY_CSV_SEP / HISTORY_CSV_DECIMAL.
 static void sendHistory(httpd_req_t* req)
 {
     httpd_resp_set_type(req, "text/csv; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", CACHE_NONE);
     Out o(req);
-    char delim;
-    { CfgLock l; delim = Cfg::co2.csvDelimiter; }
+    const char delim = HISTORY_CSV_SEP;
     o.printf("date%cvalue%ctemp\r\n", delim, delim);
     for (uint32_t i = 0;; i++) {
         HistoryRecord rec;
@@ -633,13 +665,13 @@ static void sendHistory(httpd_req_t* req)
         { CfgLock l; ok = History::get(i, rec); tt = History::getTemp(i); }
         if (!ok) break;
         time_t t = Net::epochFromUptime(rec.uptimeS);
-        if (t == 0) break;   // время неизвестно — дальше только более старые записи
+        if (t == 0) break;   // время неизвестно - дальше только более старые записи
         struct tm tm;
         localtime_r(&t, &tm);
         char temp[12] = "";
         if (tt != HISTORY_NO_TEMP) {
             const int16_t a = tt < 0 ? -tt : tt;
-            snprintf(temp, sizeof(temp), "%s%d.%d", tt < 0 ? "-" : "", a / TENTHS_PER_DEG, a % TENTHS_PER_DEG);
+            snprintf(temp, sizeof(temp), "%s%d%c%d", tt < 0 ? "-" : "", a / TENTHS_PER_DEG, HISTORY_CSV_DECIMAL, a % TENTHS_PER_DEG);
         }
         o.printf("%04d-%02d-%02d %02d:%02d:%02d%c%u%c%s\r\n", 1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday,
                  tm.tm_hour, tm.tm_min, tm.tm_sec, delim, rec.co2, delim, temp);
@@ -665,7 +697,7 @@ static bool readBody(httpd_req_t* req)
 static esp_err_t sendJson(httpd_req_t* req, const char* data, size_t len);
 
 // ------------------------------------------------------------------ пароль настроек (HTTP Basic)
-// Пароль пустой — доступ без пароля. Иначе «Authorization: Basic base64(имя:пароль)», имя — любое.
+// Пароль пустой - доступ без пароля. Иначе «Authorization: Basic base64(имя:пароль)», имя - любое.
 static bool authorized(httpd_req_t* req)
 {
     char want[sizeof(Cfg::net.webPass)];
@@ -692,7 +724,7 @@ static esp_err_t askAuth(httpd_req_t* req)
     return httpd_resp_send(req, "Нужен пароль настроек", HTTPD_RESP_USE_STRLEN);
 }
 
-// Все имена запроса /api/set — из OPEN_VARS (управление с главной)? Имена — ASCII, без декодирования.
+// Все имена запроса /api/set - из OPEN_VARS (управление с главной)? Имена - ASCII, без декодирования.
 static bool onlyOpenVars(const char* s)
 {
     while (*s) {
@@ -717,8 +749,8 @@ static bool isAuthPage(const char* path)
 
 // ------------------------------------------------------------------ обновление прошивки (OTA)
 // Тело запроса пишется во второй раздел приложения (app0 / app1) по кускам s_json; образ проверяет
-// esp_ota_end() (заголовок, чип, контрольная сумма). Новый раздел загрузочный — перезапуск; при старте
-// фреймворк подтверждает образ (CONFIG_APP_ROLLBACK_ENABLE, verifyOta()), не запустившийся — откатывается.
+// esp_ota_end() (заголовок, чип, контрольная сумма). Новый раздел загрузочный - перезапуск; при старте
+// фреймворк подтверждает образ (CONFIG_APP_ROLLBACK_ENABLE, verifyOta()), не запустившийся - откатывается.
 static esp_err_t otaFail(httpd_req_t* req, esp_ota_handle_t h, const char* msg)
 {
     if (h) esp_ota_abort(h);
@@ -765,8 +797,8 @@ static esp_err_t sendJson(httpd_req_t* req, const char* data, size_t len)
     return httpd_resp_send(req, data, len);
 }
 
-// Ответ — один JSON-объект, отправляется чанками по группам: «{» + группа, «,» + группа …, «}».
-// s_json[0] — место под «{» / «,», группа пишется с s_json[1]. Группа не влезла в WEB_JSON_MAX — вместо неё
+// Ответ - один JSON-объект, отправляется чанками по группам: «{» + группа, «,» + группа …, «}».
+// s_json[0] - место под «{» / «,», группа пишется с s_json[1]. Группа не влезла в WEB_JSON_MAX - вместо неё
 // "json_overflow":"<группа>" (app.js показывает ошибку), остальные группы уходят как обычно.
 static esp_err_t apiVars(httpd_req_t* req)
 {
@@ -820,7 +852,7 @@ static esp_err_t apiSet(httpd_req_t* req)
     } else if (httpd_req_get_url_query_str(req, s_body, sizeof(s_body)) != ESP_OK) {
         s_body[0] = '\0';
     }
-    if (!onlyOpenVars(s_body) && !authorized(req)) return askAuth(req);   // настройки — по паролю
+    if (!onlyOpenVars(s_body) && !authorized(req)) return askAuth(req);   // настройки - по паролю
     {
         CfgLock l;
         applyPairs(c, s_body, nullptr);
@@ -832,9 +864,10 @@ static esp_err_t apiSet(httpd_req_t* req)
     j.boolean("ok", true);
     if (c.unknown[0]) j.str("unknown", c.unknown);
     j.boolean("restart", c.restart);
+    if (c.abcRejected) j.boolean("abc_rejected", true);   // ABC: занят, не читали или неверные значения
     j.endObj();
     esp_err_t res = sendJson(req, resp, j.length());
-    if (c.restart) {   // перекалибровка тача: ответ отправлен — перезапуск (задача веб-сервера)
+    if (c.restart) {   // перекалибровка тача: ответ отправлен - перезапуск (задача веб-сервера)
         vTaskDelay(pdMS_TO_TICKS(WEB_RESTART_DELAY_MS));
         ESP.restart();
     }

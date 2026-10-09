@@ -1,4 +1,4 @@
-// temp_sensor.cpp — датчик температуры: выбор драйвера по типу из настроек, период, учёт ошибок.
+// temp_sensor.cpp - датчик температуры: выбор драйвера по типу из настроек, период, учёт ошибок.
 // Смена типа на лету: старый драйвер освобождает вывод / шину, счётчики и значение сбрасываются.
 #include "temp_sensor.h"
 #include "temp_backend.h"
@@ -14,10 +14,10 @@ constexpr int16_t  TENTHS   = 10;
 
 static uint8_t  s_type      = TEMP_SENSOR_NONE;   // активный драйвер
 static bool     s_busy      = false;              // идёт измерение
-static bool     s_started   = false;              // первое измерение — сразу после выбора
+static bool     s_started   = false;              // первое измерение - сразу после выбора
 static uint32_t s_cycleStart = 0;
 static int16_t  s_tenths    = 0;
-static int8_t   s_rh        = -1;                 // влажность, % (-1 — нет)
+static int8_t   s_rh        = -1;                 // влажность, % (-1 - нет)
 static bool     s_everValid = false;
 static uint8_t  s_fails     = 0;                  // ошибок подряд
 static uint32_t s_errors    = 0;                  // ошибок всего

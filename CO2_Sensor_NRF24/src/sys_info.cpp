@@ -1,5 +1,5 @@
-// sys_info.cpp — задачи FreeRTOS, загрузка ядер и температура кристалла. См. sys_info.h.
-// Буферы — статические: снимок uxTaskGetSystemState (~1,3 КБ) и таблица строк; кучу не трогаем.
+// sys_info.cpp - задачи FreeRTOS, загрузка ядер и температура кристалла. См. sys_info.h.
+// Буферы - статические: снимок uxTaskGetSystemState (~1,3 КБ) и таблица строк; кучу не трогаем.
 #include "sys_info.h"
 #include <Arduino.h>
 #include <math.h>
@@ -23,13 +23,13 @@ constexpr float    TENTHS      = 10.0f;
 // Строка таблицы + то, что нужно для накопления времени (номер задачи и прошлое значение счётчика)
 struct Slot {
     TaskRow     row;
-    UBaseType_t number;     // xTaskNumber — уникален для задачи
+    UBaseType_t number;     // xTaskNumber - уникален для задачи
     uint32_t    prevCnt;    // ulRunTimeCounter в прошлом снимке
 };
 
 static TaskStatus_t s_status[SYSINFO_TASKS_MAX];   // снимок FreeRTOS
 static Slot         s_slots[SYSINFO_TASKS_MAX];    // таблица (отсортирована)
-static Slot         s_prev[SYSINFO_TASKS_MAX];     // прошлый снимок — для поиска задачи по номеру
+static Slot         s_prev[SYSINFO_TASKS_MAX];     // прошлый снимок - для поиска задачи по номеру
 static uint8_t      s_count     = 0;
 static bool         s_overflow  = false;
 static uint8_t      s_load[CORES];
@@ -40,7 +40,7 @@ static int64_t      s_lastUs    = 0;
 static uint32_t     s_snapId    = 0;
 
 static const char* const STATE_NAMES[TASK_STATE_COUNT] = { "Выполняется", "Готова", "Ожидает", "Приостановлена", "Удалена" };
-static const char* const STATE_SHORT[TASK_STATE_COUNT] = { "раб", "гот", "блк", "стп", "удл" };
+static const char* const STATE_SHORT[TASK_STATE_COUNT] = { "W", "R", "B", "S", "D" };   // экран: раб., готова, ждёт, приост., удалена
 
 static uint8_t mapState(eTaskState s)
 {
@@ -53,7 +53,7 @@ static uint8_t mapState(eTaskState s)
     }
 }
 
-// По убыванию приоритета, при равном — по имени
+// По убыванию приоритета, при равном - по имени
 static bool before(const TaskRow& a, const TaskRow& b)
 {
     if (a.prio != b.prio) return a.prio > b.prio;
@@ -68,9 +68,9 @@ static void snapshot()
     s_lastUs = nowUs;
     s_snapId++;
 
-    uint32_t total = 0;   // в FreeRTOS — суммарное время; не используем: «Итого» считаем по накопленным суммам
+    uint32_t total = 0;   // в FreeRTOS - суммарное время; не используем: «Итого» считаем по накопленным суммам
     const UBaseType_t n = uxTaskGetSystemState(s_status, SYSINFO_TASKS_MAX, &total);
-    s_overflow = n == 0 && uxTaskGetNumberOfTasks() > SYSINFO_TASKS_MAX;   // 0 — массив мал
+    s_overflow = n == 0 && uxTaskGetNumberOfTasks() > SYSINFO_TASKS_MAX;   // 0 - массив мал
 
     const uint8_t prevCount = s_count;
     memcpy(s_prev, s_slots, sizeof(Slot) * prevCount);
@@ -85,7 +85,7 @@ static void snapshot()
         for (uint8_t k = 0; k < prevCount; k++)
             if (s_prev[k].number == st.xTaskNumber) { old = &s_prev[k]; break; }
         // приращение 32-битного счётчика без знака: верно и через переполнение (период << 71 мин);
-        // новая задача — счётчик с её создания
+        // новая задача - счётчик с её создания
         const uint32_t cnt = (uint32_t)st.ulRunTimeCounter;
         const uint32_t delta = old ? cnt - old->prevCnt : cnt;
         s.number  = st.xTaskNumber;
@@ -111,7 +111,7 @@ static void snapshot()
         s_slots[j + 1] = t;
     }
 
-    if (!first && elapsedUs)   // первый снимок — без загрузки (нет прошлого)
+    if (!first && elapsedUs)   // первый снимок - без загрузки (нет прошлого)
         for (uint8_t c = 0; c < CORES; c++) {
             const uint64_t idle = idleDeltaUs[c] > elapsedUs ? elapsedUs : idleDeltaUs[c];
             s_load[c] = (uint8_t)(PCT - idle * PCT / elapsedUs);
@@ -120,7 +120,7 @@ static void snapshot()
 
 void begin()
 {
-    s_last = millis() - SYSINFO_PERIOD_MS;   // первый снимок — сразу
+    s_last = millis() - SYSINFO_PERIOD_MS;   // первый снимок - сразу
 }
 
 void update(uint32_t now)

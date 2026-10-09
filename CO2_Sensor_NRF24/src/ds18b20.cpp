@@ -1,9 +1,9 @@
-// ds18b20.cpp — драйвер DS18B20 на 1-Wire (вывод TEMP_PIN_DQ), один датчик на линии.
+// ds18b20.cpp - драйвер DS18B20 на 1-Wire (вывод TEMP_PIN_DQ), один датчик на линии.
 // Измерение: сброс -> SKIP ROM -> CONVERT T -> ожидание DS18B20_CONV_MS -> сброс -> SKIP ROM ->
 // READ SCRATCHPAD -> 9 байт -> проверка CRC-8 (Dallas/Maxim, x^8+x^5+x^4+1) и регистра конфигурации.
-// Неблокирующий: за вызов poll() — один шаг (сброс ~0.55 мс или байт ~0.6 мс); восстановление линии
-// после сброса и преобразование — по таймеру. Тайм-слоты битов (≤ 70 мкс) — в критической секции,
-// чтобы прерывание не растянуло импульс. Линия — открытый сток (GPIO_MODE_INPUT_OUTPUT_OD), подтяжка
+// Неблокирующий: за вызов poll() - один шаг (сброс ~0.55 мс или байт ~0.6 мс); восстановление линии
+// после сброса и преобразование - по таймеру. Тайм-слоты битов (≤ 70 мкс) - в критической секции,
+// чтобы прерывание не растянуло импульс. Линия - открытый сток (GPIO_MODE_INPUT_OUTPUT_OD), подтяжка
 // 4.7 кОм внешняя (внутренняя ~45 кОм включена только как запасная).
 #include "temp_backend.h"
 #include "config.h"
@@ -30,9 +30,10 @@ constexpr uint8_t  CMD_CONVERT_T      = 0x44;
 constexpr uint8_t  CMD_READ_SCRATCH   = 0xBE;
 constexpr uint8_t  SCRATCH_LEN        = 9;     // T LSB, T MSB, TH, TL, конфигурация, FF, резерв, 10h, CRC
 constexpr uint8_t  SCRATCH_CFG        = 4;
-constexpr uint8_t  CFG_FIXED_MASK     = 0x9F;  // конфигурация: бит 7 = 0, биты 4..0 = 1 (биты 6..5 — разрешение)
+constexpr uint8_t  CFG_FIXED_MASK     = 0x9F;  // конфигурация: бит 7 = 0, биты 4..0 = 1 (биты 6..5 - разрешение)
 constexpr uint8_t  CFG_FIXED_BITS     = 0x1F;
-constexpr int16_t  RAW_POWER_ON       = 0x0550;   // +85 °C — значение после включения (преобразования не было)
+constexpr int16_t  RAW_POWER_ON       = 0x0550;   // +85 °C - значение после включения: CONVERT T запрошен, значит датчик
+                                                 // перезапустился до чтения (просадка питания); в помещении 85 °C не бывает
 constexpr uint8_t  CRC8_POLY          = 0x8C;  // x^8+x^5+x^4+1, отражённый
 constexpr uint8_t  BITS_PER_BYTE      = 8;
 constexpr int16_t  RAW_PER_DEG        = 16;    // 12 бит: 1/16 °C
@@ -52,7 +53,7 @@ static uint8_t  s_idx       = 0;
 // ------------------------------------------------------------------ 1-Wire
 static bool busReady() { return (int32_t)(micros() - s_readyUs) >= 0; }
 
-// Сброс и проверка присутствия. Низкий уровень сброса — вне критической секции (растяжение не мешает).
+// Сброс и проверка присутствия. Низкий уровень сброса - вне критической секции (растяжение не мешает).
 static TempErr busReset()
 {
     if (gpio_get_level(PIN) == 0) return TempErr::LineLow;   // линия замкнута или нет подтяжки
@@ -141,7 +142,7 @@ void attach()
 
 void detach()
 {
-    if (TEMP_PIN_DQ >= 0) gpio_reset_pin(PIN);   // вход с подтяжкой — как после включения
+    if (TEMP_PIN_DQ >= 0) gpio_reset_pin(PIN);   // вход с подтяжкой - как после включения
 }
 
 void start(uint32_t) { s_state = State::ResetConv; }

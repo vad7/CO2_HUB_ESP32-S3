@@ -1,7 +1,7 @@
 # Упаковка веб-файлов "CO2_Sensor_NRF24/web/" в заголовок "CO2_Sensor_NRF24/include/web_files.h".
-#   *.htm        — страницы (меню и подвал вставляет web/app.js в #app_menu / #app_footer);
-#   *.js, *.css  — скрипты и стили; ссылки на них в страницах получают ?h=<crc32> (см. add_versions).
-# Всё хранится сжатым gzip и отдаётся с Content-Encoding: gzip — прошивка ничего не подставляет,
+#   *.htm        - страницы (меню и подвал вставляет web/app.js в #app_menu / #app_footer);
+#   *.js, *.css  - скрипты и стили; ссылки на них в страницах получают ?h=<crc32> (см. add_versions).
+# Всё хранится сжатым gzip и отдаётся с Content-Encoding: gzip - прошивка ничего не подставляет,
 # данные страницы берут из JSON /api/vars (см. web/app.js).
 # Всё встроено во Flash: страницы работают без доступа в интернет.
 # Запуск: автоматически перед сборкой (platformio.ini: extra_scripts = pre:Scripts/build_web.py)
@@ -51,7 +51,7 @@ def c_array(data):
 
 def generate():
     files = sorted(f for f in os.listdir(WEB_DIR) if os.path.splitext(f)[1] in MIME)
-    parts = ["// Сгенерировано Scripts/build_web.py из \"CO2_Sensor_NRF24/web/\" — не править вручную.",
+    parts = ["// Сгенерировано Scripts/build_web.py из \"CO2_Sensor_NRF24/web/\" - не править вручную.",
              "#pragma once", "#include <stdint.h>", "#include <stddef.h>", "",
              "struct WebFile {", "    const char*    path;      // URL без ведущего '/'",
              "    const uint8_t* data;      // gzip", "    size_t         len;", "    const char*    mime;",
@@ -78,18 +78,18 @@ def generate():
     if os.path.isfile(OUT):
         with open(OUT, "r", encoding="utf-8") as f:
             old = f.read()
-    if old != text:   # перезапись только при изменении — без лишней пересборки
+    if old != text:   # перезапись только при изменении - без лишней пересборки
         with open(OUT, "w", encoding="utf-8") as f:
             f.write(text)
         print("build_web: web_files.h обновлён (%d файлов)" % len(files))
 
 
 try:
-    Import("env")  # noqa: F821 — запуск из PlatformIO
+    Import("env")  # noqa: F821 - запуск из PlatformIO
     ROOT = env.subst("$PROJECT_DIR")  # noqa: F821
     WEB_DIR = os.path.join(ROOT, "CO2_Sensor_NRF24", "web")
     OUT = os.path.join(ROOT, "CO2_Sensor_NRF24", "include", "web_files.h")
     generate()
 except NameError:
-    if __name__ == "__main__":   # вручную; при импорте из web_preview.py — ничего не делать
+    if __name__ == "__main__":   # вручную; при импорте из web_preview.py - ничего не делать
         generate()

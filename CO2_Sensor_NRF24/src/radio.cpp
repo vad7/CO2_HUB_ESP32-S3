@@ -1,29 +1,29 @@
-// radio.cpp — nRF24L01+ через nrf24/RF24 1.6.2, два режима связи с вентиляторами.
+// radio.cpp - nRF24L01+ через nrf24/RF24 1.6.2, два режима связи с вентиляторами.
 //
 // Активный (хаб ESP8266, Old/ESP8266_WIFI/app/nrf24l01.c, NRF24_init + SetMode(TX)):
 //   SETUP_AW=0x01 (3 байта)  SETUP_RETR=0x2F  RF_SETUP=0x07 (1 Мбит/с, 0 dBm)
 //   EN_AA=0x01  EN_RXADDR=0x01  RX_PW_P0=4  CONFIG=0x7E (CRC16, IRQ замаскированы, PWR_UP, PTX)  DYNPD=0  FEATURE=0
 //   Передача неблокирующая: RF24::write() ждёт до 95 мс, поэтому startFastWrite() + опрос STATUS.
 // Пассивный (хаб CO2UART, Old/CO2UART/app/nrf24l01.c): PRX на общем канале, FEATURE = EN_DPL | EN_ACK_PAY,
-//   канал приёма (pipe) i — вентилятор i; ответ {CO2, скорость, пауза} заранее кладётся в TX FIFO
+//   канал приёма (pipe) i - вентилятор i; ответ {CO2, скорость, пауза} заранее кладётся в TX FIFO
 //   (W_ACK_PAYLOAD) и уходит вместе с ACK на запрос вентилятора. CONFIG=0x7F (PRIM_RX).
 //
-// CE модуля — перемычкой на 3.3 В на обеих платах (так же работал хаб CO2UART: CE поднимался при старте).
-// RF24 в «3-проводном» режиме (CE == CSN) — ce() ничего не делает. Следствия:
+// CE модуля - перемычкой на 3.3 В на обеих платах (так же работал хаб CO2UART: CE поднимался при старте).
+// RF24 в «3-проводном» режиме (CE == CSN) - ce() ничего не делает. Следствия:
 //   * активный: при пустом TX FIFO модуль в Standby-II (запись регистров разрешена), загрузка пакета сразу
-//     запускает передачу; после MAX_RT пакет остаётся в FIFO и при снятии флага ушёл бы снова — поэтому
+//     запускает передачу; после MAX_RT пакет остаётся в FIFO и при снятии флага ушёл бы снова - поэтому
 //     в finishTx() сначала flush_tx(), потом clearStatusFlags();
 //   * пассивный: при PRIM_RX = 1 модуль сразу в приёме;
-//   * смена режима — через выключение питания модуля (powerDown -> настройка -> powerUp): при CE = 1 выйти из
+//   * смена режима - через выключение питания модуля (powerDown -> настройка -> powerUp): при CE = 1 выйти из
 //     приёма в передачу можно только так (так же RF24 делает в 3-проводном режиме ATtiny). powerUp() внутри
-//     RF24 ждёт 5 мс — только при смене режима и перезапуске модуля (действия пользователя / раз в час).
+//     RF24 ждёт 5 мс - только при смене режима и перезапуске модуля (действия пользователя / раз в час).
 #include "radio.h"
 #include <Arduino.h>
 #include <SPI.h>
 #include <RF24.h>
 #include <stdio.h>
 
-// Доступ к защищённому read_register() — для сверки регистров и проверки адреса
+// Доступ к защищённому read_register() - для сверки регистров и проверки адреса
 class RF24Ext : public RF24 {
 public:
     using RF24::RF24;
@@ -127,7 +127,7 @@ bool setPassive(uint8_t channel, const uint8_t* addrLsb, uint8_t pipes)
     uint8_t addr[RADIO_ADDR_WIDTH];
     for (uint8_t p = 0; p < RADIO_PIPES_MAX; p++) {
         if (p < pipes) {
-            makeAddr(addrLsb[p], addr);    // pipe 2..5: пишется только младший байт, старшие — общие с pipe 1
+            makeAddr(addrLsb[p], addr);    // pipe 2..5: пишется только младший байт, старшие - общие с pipe 1
             s_radio.openReadingPipe(p, addr);
         } else {
             s_radio.closeReadingPipe(p);
@@ -136,7 +136,7 @@ bool setPassive(uint8_t channel, const uint8_t* addrLsb, uint8_t pipes)
     s_radio.setChannel(channel);
     s_radio.flush_rx();
     s_radio.flush_tx();
-    s_radio.startListening();              // powerUp + PRIM_RX (+ адрес pipe 0); при CE = 1 — сразу приём
+    s_radio.startListening();              // powerUp + PRIM_RX (+ адрес pipe 0); при CE = 1 - сразу приём
     s_passiveChannel = channel;
     s_pipes   = pipes;
     s_passive = true;
@@ -164,7 +164,7 @@ bool receive(uint8_t& pipe, uint8_t* buf, uint8_t maxLen, uint8_t& len)
     if (!s_chipOk || !s_passive) return false;
     uint8_t p;
     if (!s_radio.available(&p)) return false;
-    uint8_t n = s_radio.getDynamicPayloadSize();   // > 32 — RF24 сам очищает RX FIFO и возвращает 0
+    uint8_t n = s_radio.getDynamicPayloadSize();   // > 32 - RF24 сам очищает RX FIFO и возвращает 0
     if (n == 0) return false;
     uint8_t tmp[RADIO_MAX_PAYLOAD];
     s_radio.read(tmp, n);                          // снимает RX_DR
@@ -234,7 +234,7 @@ TxResult startTx(uint8_t addrLsb, uint8_t channel, const SendData& pkt, uint32_t
 
     s_radio.clearStatusFlags();
     s_radio.flush_tx();
-    s_radio.startFastWrite(&pkt, sizeof(pkt), false, true);   // CE = 1 аппаратно — передача сразу
+    s_radio.startFastWrite(&pkt, sizeof(pkt), false, true);   // CE = 1 аппаратно - передача сразу
     s_txStart = now;
     s_busy = true;
     return TxResult::Busy;

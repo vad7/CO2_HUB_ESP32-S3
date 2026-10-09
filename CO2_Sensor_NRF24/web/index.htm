@@ -13,7 +13,7 @@
 <p class="center temp" hidden>Температура: <b><span data-var="temp_c"></span> °C</b><span id="rh"></span></p>
 <p id="night" class="center"></p>
 <table id="fans" class="mdbtab">
-	<tr><th>№</th><th>Место</th><th>Скорость</th><th id="col_time">Отправлена</th><th colspan="3" width="36%">Корректировка на &nbsp;<input title="0 - неограничено" id="fsp_time" size="3" maxlength="5">&nbsp; мин.</th></tr>
+	<tr><th>№</th><th>Место</th><th id="col_speed">Скорость</th><th id="col_time">Отправлена</th><th colspan="3" width="36%">Корректировка на &nbsp;<input title="0 - неограничено" id="fsp_time" size="3" maxlength="5">&nbsp; мин.</th></tr>
 </table>
 <br>
 <form data-api>
@@ -26,13 +26,12 @@
 <br>
 Текущее время: <span data-var="sntp_time" data-fmt="time"></span>&nbsp;(<span data-var="sntp_status"></span>)<br>
 Время включения: <span data-var="sys_mactime" data-fmt="time"></span><br>
-Режим связи: <span id="radio_mode"></span> (<a href="settings.htm#g_radio">изменить</a>)<br>
 </div>
 <div id="app_footer"></div>
 <script>
 var FSP_COOKIE = 'fsp_time';
 
-/* Корректировка вентилятора i: p — +1, m — −1 (на fsp_time мин.), c — снять */
+/* Корректировка вентилятора i: p - +1, m - −1 (на fsp_time мин.), c - снять */
 function fanOverride(i, cmd) {
 	var min = cmd == 'c' ? 0 : (Number(document.getElementById('fsp_time').value) || 0);
 	App.send({ cfg_fan_: i, cfg_fan_override: cmd + min }, function () { App.load(false, update); });
@@ -92,9 +91,8 @@ function update(v) {
 				: 'Последний запрос; состояние вентилятора 0x' + fn.rst.toString(16).toUpperCase();
 		}
 	}
-	document.getElementById('radio_mode').textContent = v.cfg_co2_radio_mode == 1
-		? 'пассивный (вентиляторы запрашивают), канал ' + v.cfg_co2_passive_ch : 'активный (хаб передаёт)';
 	document.getElementById('col_time').textContent = v.cfg_co2_radio_mode == 1 ? 'Запрос' : 'Отправлена';
+	document.getElementById('col_speed').textContent = 'Скорость (' + v.fan_speed_previous + ')';
 }
 
 var started = false;

@@ -1,6 +1,6 @@
-// font_digits.h — крупные цифры CO2 сглаженным шрифтом Montserrat-SemiBold (лицензия SIL OFL 1.1).
-// СГЕНЕРИРОВАНО Scripts/gen_digits_font.py — не править вручную.
-// Растр: прозрачность 0..15, 4 бита на пиксель, старший полубайт — левый пиксель, строка глифа выровнена на байт.
+// font_digits.h - крупные цифры CO2 сглаженным шрифтом Montserrat-SemiBold (лицензия SIL OFL 1.1).
+// СГЕНЕРИРОВАНО Scripts/gen_digits_font.py - не править вручную.
+// Растр: прозрачность 0..15, 4 бита на пиксель, старший полубайт - левый пиксель, строка глифа выровнена на байт.
 #pragma once
 #include <stdint.h>
 
@@ -22,7 +22,7 @@ constexpr uint8_t SMOOTH_DIGITS_ALPHA_MAX   = 15;   // непрозрачный 
 constexpr uint8_t SMOOTH_DIGITS_SMALL_CHARS = 4;    // любые столько знаков мелким размером влезают в 312 px
 static const char SMOOTH_DIGITS_CHARS[] = "-0123456789";   // порядок глифов
 
-// BIG: 134 pt, строка 95 px, самые широкие 3 знака — 268 px, 4 знака — 359 px
+// BIG: 134 pt, строка 95 px, самые широкие 3 знака - 268 px, 4 знака - 359 px
 static const SmoothGlyph SMOOTH_DIGITS_BIG_GLYPHS[] = {
     {      0,  38,  15,   7,  49,  52 },   // '-'
     {    285,  80,  95,   5,   0,  90 },   // '0'
@@ -1484,7 +1484,7 @@ static const uint8_t SMOOTH_DIGITS_BIG_BITMAP[34651] = {
 };
 static const SmoothFont SMOOTH_DIGITS_BIG = { 95, SMOOTH_DIGITS_BIG_GLYPHS, SMOOTH_DIGITS_BIG_BITMAP };
 
-// SMALL: 116 pt, строка 84 px, самые широкие 3 знака — 233 px, 4 знака — 312 px
+// SMALL: 116 pt, строка 84 px, самые широкие 3 знака - 233 px, 4 знака - 312 px
 static const SmoothGlyph SMOOTH_DIGITS_SMALL_GLYPHS[] = {
     {      0,  33,  13,   6,  44,  45 },   // '-'
     {    221,  68,  84,   5,   0,  78 },   // '0'

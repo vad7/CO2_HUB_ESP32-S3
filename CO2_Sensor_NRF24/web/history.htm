@@ -17,28 +17,30 @@ svg { font: 10px sans-serif; }
 .focus .tline { clip-path: url(#clip); }
 .axis--t text { fill: red; }
 .axis--t path, .axis--t line { stroke: red; }
+.axis-label { font: 11px sans-serif; }
+.axis-label--t { fill: red; }
 </style>
 </head>
 <body data-groups="main,hist">
 <div id="app_menu"></div>
 <div class="content">
-<h2 class="title">История CO<sub>2</sub>, ppm<span id="t_title" hidden> <span style="color:red">и температура, °C</span></span></h2>
+<h2 class="title" style="color:#000">История: CO<sub>2</sub><span id="t_title" hidden> и температура</span></h2>
 <div id="chart"></div>
 <p id="empty" class="center" hidden>История пуста (нет данных или время ещё не синхронизировано).</p>
 <p class="center">Выделите участок на нижнем графике, чтобы увеличить.</p>
 Последнее измерение: <span data-var="CO2_last_time" data-fmt="time"></span><br>
-Записей: <span data-var="history_count"></span> из <span data-var="hist_cap"></span>,
-с температурой: <span data-var="hist_temp_count"></span> (размер — <a href="settings.htm#g_sensors">в настройках</a>, память — <a href="info.htm">на странице «?»</a>)<br>
+Записей: <span id="h_rec"></span><br>
 <a href="history.csv">Скачать history.csv</a><br>
 </div>
 <div id="app_footer"></div>
 <script>
 // Перенос графика хаба (d3 v3) на d3 v7: area + brush (focus/context)
-var margin = {top: 10, right: 40, bottom: 80, left: 40},
-	margin2 = {top: 180, right: 40, bottom: 20, left: 40},
+var CHART_H = 252, LABEL_DY = 8;   // высота svg; подписи осей (ppm, °C) - над осями
+var margin = {top: 22, right: 40, bottom: 80, left: 40},
+	margin2 = {top: 192, right: 40, bottom: 20, left: 40},
 	width = 720 - margin.left - margin.right,
-	height = 240 - margin.top - margin.bottom,
-	height2 = 240 - margin2.top - margin2.bottom;
+	height = CHART_H - margin.top - margin.bottom,
+	height2 = CHART_H - margin2.top - margin2.bottom;
 
 var parseDate = d3.timeParse("%Y-%m-%d %H:%M:%S");
 
@@ -49,8 +51,26 @@ var x = d3.scaleTime().range([0, width]),
 	yT = d3.scaleLinear().range([height, 0]),     // температура: своя шкала справа, мин..макс по всему буферу
 	yT2 = d3.scaleLinear().range([height2, 0]);
 
-var xAxis = d3.axisBottom(x),
-	xAxis2 = d3.axisBottom(x2),
+/* Подписи оси времени: русская локаль, 24 ч - «14:00», «Пт 09», «12 окт», «Октябрь», «2026»
+   (как стандартный многоуровневый формат d3, но без 12-часового «PM») */
+var RU = d3.timeFormatLocale({
+	dateTime: '%d.%m.%Y %H:%M:%S', date: '%d.%m.%Y', time: '%H:%M:%S', periods: ['', ''],
+	days: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'],
+	shortDays: ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'],
+	months: ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'],
+	shortMonths: ['янв', 'фев', 'мар', 'апр', 'мая', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+});
+var fSec = RU.format(':%S'), fMin = RU.format('%H:%M'), fDay = RU.format('%a %d'), fWeek = RU.format('%d %b'),
+	fMonth = RU.format('%B'), fYear = RU.format('%Y');
+function timeTick(d) {
+	return (d3.timeSecond(d) < d ? fSec
+		: d3.timeDay(d) < d ? fMin                                   // минуты и часы - «14:00»
+		: d3.timeMonth(d) < d ? (d3.timeWeek(d) < d ? fDay : fWeek)
+		: d3.timeYear(d) < d ? fMonth : fYear)(d);
+}
+
+var xAxis = d3.axisBottom(x).tickFormat(timeTick),
+	xAxis2 = d3.axisBottom(x2).tickFormat(timeTick),
 	yAxis = d3.axisLeft(y),
 	yAxisR = d3.axisRight(y),
 	yAxisT = d3.axisRight(yT);
@@ -69,7 +89,7 @@ var area2 = d3.area()
 	.y0(height2)
 	.y1(function(d) { return y2(d.value); });
 
-// температура — линия с разрывами там, где данных нет
+// температура - линия с разрывами там, где данных нет
 var tline = d3.line()
 	.defined(function(d) { return d.temp != null; })
 	.x(function(d) { return x(d.date); })
@@ -98,10 +118,28 @@ var context = svg.append("g")
 	.attr("class", "context")
 	.attr("transform", "translate(" + margin2.left + "," + margin2.top + ")");
 
+/* Длительность: «2 дн 5 ч», «5 ч 10 мин», «40 мин» (нулевые части не пишутся) */
+var S_MIN = 60, S_HOUR = 3600, S_DAY = 86400;
+function duration(sec) {
+	var d = Math.floor(sec / S_DAY), h = Math.floor(sec % S_DAY / S_HOUR), m = Math.floor(sec % S_HOUR / S_MIN), t = [];
+	if (d) t.push(d + ' дн');
+	if (h) t.push(h + ' ч');
+	if (!d && (m || !h)) t.push(m + ' мин');
+	return t.join(' ');
+}
+/* «Записей: 2 дн 5 ч (3450) из 180 дн (30234)» - записано и вмещает, сутки - по периоду рассылки */
+function records(v) {
+	var p = Number(v.cfg_co2_period) || 1;
+	document.getElementById('h_rec').textContent = duration(v.history_count * p) + ' (' + v.history_count + ') из ' +
+		duration(v.hist_cap * p) + ' (' + v.hist_cap + ')';
+}
+
 function draw(v) {
-d3.dsv(v.cfg_co2_csv_delim, "history.csv", function(d) {
+records(v);
+document.getElementById('t_title').hidden = v.temp_en != 1;
+d3.dsv(";", "history.csv", function(d) {   // колонки - «;», дробная часть - «,» (web.cpp sendHistory)
 	return { date: parseDate(d.date), value: +d.value,
-		temp: d.temp == null || d.temp === '' ? null : +d.temp };   // столбец temp пуст — нет данных
+		temp: d.temp == null || d.temp === '' ? null : +d.temp.replace(',', '.') };   // столбец temp пуст - нет данных
 }).then(function(data) {
 	data = data.filter(function(d) { return d.date != null; });
 	data.sort(function(a, b) { return a.date - b.date; });
@@ -118,6 +156,10 @@ d3.dsv(v.cfg_co2_csv_delim, "history.csv", function(d) {
 		yT2.domain(te);
 		document.getElementById('t_title').hidden = false;
 	}
+	svg.append("text").attr("class", "axis-label").attr("text-anchor", "end")
+		.attr("x", margin.left - LABEL_DY).attr("y", margin.top - LABEL_DY).text("ppm");
+	svg.append("text").attr("class", "axis-label" + (hasT ? " axis-label--t" : "")).attr("text-anchor", "start")
+		.attr("x", margin.left + width + LABEL_DY).attr("y", margin.top - LABEL_DY).text(hasT ? "°C" : "ppm");
 
 	focus.append("path").datum(data).attr("class", "area").attr("d", area);
 	focus.append("g").attr("class", "axis axis--x").attr("transform", "translate(0," + height + ")").call(xAxis);

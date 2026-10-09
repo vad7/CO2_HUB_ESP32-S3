@@ -1,4 +1,4 @@
-// hub_config.cpp — хранение настроек хаба в NVS (аналог flash_read_cfg / flash_save_cfg хаба)
+// hub_config.cpp - хранение настроек хаба в NVS (аналог flash_read_cfg / flash_save_cfg хаба)
 #include "hub_config.h"
 #include <Arduino.h>
 #include <Preferences.h>
@@ -37,7 +37,7 @@ void initFan(uint8_t idx)
     f.rfChannel  = RF_CHANNEL_DEF;
     f.addressLsb = (uint8_t)(FAN_ADDR_LSB_DEF + idx);
     f.speedMin   = 0;
-    f.speedMax   = FAN_SPEED_MAX;   // у хаба после memset было 0 — вентилятор стоял бы всегда
+    f.speedMax   = FAN_SPEED_MAX;   // у хаба после memset было 0 - вентилятор стоял бы всегда
     f.pauseS     = FAN_PAUSE_DEF_S;
     f.timeoutS   = FAN_TIMEOUT_DEF_S;
 }
@@ -46,7 +46,6 @@ static void defaultsCo2()
 {
     memset(&co2, 0, sizeof(co2));
     memcpy(co2.thresholds, CO2_THRESHOLDS_DEF, sizeof(co2.thresholds));
-    co2.csvDelimiter    = CSV_DELIMITER_DEF;
     co2.pageRefreshMs   = WEB_REFRESH_DEF_MS;
     co2.historyDays     = HISTORY_DAYS_DEF;
     co2.transmitPeriodS = TRANSMIT_PERIOD_DEF_S;
@@ -59,6 +58,7 @@ static void defaultsCo2()
     co2.tempSensor      = TEMP_SENSOR_NONE;
     co2.digitsFont      = DIGITS_FONT_SMOOTH;
     co2.debug           = 0;
+    co2.co2PollS        = CO2_POLL_DEF_S;
     co2.nightStart      = NIGHT_START_DEF;
     co2.nightEnd        = NIGHT_END_DEF;
     co2.nightStartWd    = NIGHT_START_WD_DEF;
@@ -92,23 +92,22 @@ static uint16_t sanitizeHhmm(uint16_t v)
 
 void sanitize()
 {
-    if (net.apDelayMin < WIFI_AP_DELAY_LO_MIN) net.apDelayMin = WIFI_AP_DELAY_DEF_MIN;   // 0 — не задано
+    if (net.apDelayMin < WIFI_AP_DELAY_LO_MIN) net.apDelayMin = WIFI_AP_DELAY_DEF_MIN;   // 0 - не задано
     if (net.apDelayMin > WIFI_AP_DELAY_HI_MIN) net.apDelayMin = WIFI_AP_DELAY_HI_MIN;
-    if (net.ntpPeriodMin < NTP_PERIOD_LO_MIN) net.ntpPeriodMin = NTP_PERIOD_DEF_MIN;   // 0 — не задано
+    if (net.ntpPeriodMin < NTP_PERIOD_LO_MIN) net.ntpPeriodMin = NTP_PERIOD_DEF_MIN;   // 0 - не задано
     if (net.ntpPeriodMin > NTP_PERIOD_HI_MIN) net.ntpPeriodMin = NTP_PERIOD_HI_MIN;
     net.apSsid[sizeof(net.apSsid) - 1] = '\0';
     net.apPass[sizeof(net.apPass) - 1] = '\0';
     if (net.apSsid[0] == '\0')                 strlcpy(net.apSsid, NET_AP_SSID_DEF, sizeof(net.apSsid));
     if (strlen(net.apPass) < NET_AP_PASS_MIN)  strlcpy(net.apPass, NET_AP_PASS_DEF, sizeof(net.apPass));
     if (net.wifiMode >= WIFI_MODE_COUNT) net.wifiMode = WIFI_MODE_OFF;
-    net.webPass[sizeof(net.webPass) - 1] = '\0';   // пустой — настройки веба без пароля
+    net.webPass[sizeof(net.webPass) - 1] = '\0';   // пустой - настройки веба без пароля
     if (co2.fans > FANS_MAX) co2.fans = FANS_MAX;
     if (co2.nightMaxSpeed > FAN_SPEED_MAX) co2.nightMaxSpeed = FAN_SPEED_MAX;
     co2.nightStart   = sanitizeHhmm(co2.nightStart);
     co2.nightEnd     = sanitizeHhmm(co2.nightEnd);
     co2.nightStartWd = sanitizeHhmm(co2.nightStartWd);
     co2.nightEndWd   = sanitizeHhmm(co2.nightEndWd);
-    if (co2.csvDelimiter == '\0') co2.csvDelimiter = CSV_DELIMITER_DEF;
     if (co2.transmitPeriodS < TRANSMIT_PERIOD_MIN_S) co2.transmitPeriodS = TRANSMIT_PERIOD_MIN_S;
     if (co2.transmitPeriodS > TRANSMIT_PERIOD_MAX_S) co2.transmitPeriodS = TRANSMIT_PERIOD_MAX_S;
     if (co2.radioMode >= RADIO_MODE_COUNT) co2.radioMode = RADIO_ACTIVE;
@@ -126,7 +125,7 @@ void sanitize()
     }
     vars.speedOverride = clampI8(vars.speedOverride, -FAN_SPEED_MAX, FAN_SPEED_MAX);
     if (nightOverride >= NIGHT_OVR_COUNT) nightOverride = NIGHT_AUTO;
-    // 0 — «не задано» (в старом блоке на месте нового поля было выравнивание): берём умолчание
+    // 0 - «не задано» (в старом блоке на месте нового поля было выравнивание): берём умолчание
     if (co2.brightDayPct == 0)   co2.brightDayPct   = BRIGHT_DAY_DEF_PCT;
     if (co2.brightNightPct == 0) co2.brightNightPct = BRIGHT_NIGHT_DEF_PCT;
     co2.brightDayPct    = clampPct(co2.brightDayPct);
@@ -138,24 +137,25 @@ void sanitize()
         co2.tempSensor = TEMP_SENSOR_NONE;
     if (co2.digitsFont >= DIGITS_FONT_COUNT) co2.digitsFont = DIGITS_FONT_SMOOTH;
     if (co2.debug > 1) co2.debug = 0;
+    if (co2.co2PollS < CO2_POLL_MIN_S || co2.co2PollS > CO2_POLL_MAX_S) co2.co2PollS = CO2_POLL_DEF_S;
 }
 
 // ------------------------------------------------------------------------------------------
-// Хранение с размером: [BlobHdr][элемент 0][элемент 1]... — каждый элемент ровно elemSize байт.
+// Хранение с размером: [BlobHdr][элемент 0][элемент 1]... - каждый элемент ровно elemSize байт.
 // Загрузка поверх умолчаний: min(размер в прошивке, размер в NVS) байт по каждому элементу,
-// min(число элементов) — новые поля и новые элементы массива сохраняют значения по умолчанию.
-// Блок с другой меткой или неверной длиной не читается — структура остаётся по умолчанию.
+// min(число элементов) - новые поля и новые элементы массива сохраняют значения по умолчанию.
+// Блок с другой меткой или неверной длиной не читается - структура остаётся по умолчанию.
 // ------------------------------------------------------------------------------------------
 struct BlobHdr {
-    uint16_t magic;       // BLOB_MAGIC — формат блока
+    uint16_t magic;       // BLOB_MAGIC - формат блока
     uint16_t elemSize;    // размер данных одного элемента (CFG_DATA_SIZE) в прошивке, записавшей блок
-    uint16_t count;       // число элементов (вентиляторов; для одиночной структуры — 1)
+    uint16_t count;       // число элементов (вентиляторов; для одиночной структуры - 1)
 };
-static_assert(sizeof(BlobHdr) == 6, "заголовок блока NVS — 6 байт");
+static_assert(sizeof(BlobHdr) == 6, "заголовок блока NVS - 6 байт");
 // 0xC5A2: заголовок 6 байт (2026-10-07). Прежние форматы (0xC5A1 с заголовком 8 байт, сырые структуры
-// до 2026-10-05) не читаются: все настройки, кроме калибровки тача, — по умолчанию.
+// до 2026-10-05) не читаются: все настройки, кроме калибровки тача, - по умолчанию.
 constexpr uint16_t BLOB_MAGIC   = 0xC5A2;
-constexpr size_t   CFG_BLOB_MAX = 1024;          // статический буфер (без динамической памяти); 10 вентиляторов — 448 Б + запас под рост
+constexpr size_t   CFG_BLOB_MAX = 1024;          // статический буфер (без динамической памяти); 10 вентиляторов - 448 Б + запас под рост
 static uint8_t s_blob[CFG_BLOB_MAX];
 
 static_assert(sizeof(BlobHdr) + CFG_DATA_SIZE(CfgCo2)                <= CFG_BLOB_MAX, "CFG_BLOB_MAX мал для CfgCo2");
@@ -205,7 +205,7 @@ template <typename T> static bool saveCfg(const char* key, const T* obj, size_t 
     return saveArr(key, obj, sizeof(T), CFG_DATA_SIZE(T), count);
 }
 
-// Калибровка тача — фиксированный массив, формат прежний (точный размер)
+// Калибровка тача - фиксированный массив, формат прежний (точный размер)
 static bool loadBlob(Preferences& p, const char* key, void* dst, size_t len)
 {
     return p.getBytesLength(key) == len && p.getBytes(key, dst, len) == len;
@@ -223,7 +223,7 @@ static bool saveBlob(const char* key, const void* src, size_t len)
 void begin()
 {
     s_mutex = xSemaphoreCreateRecursiveMutexStatic(&s_mutexBuf);
-    // 1) значения по умолчанию, 2) поверх — сохранённое (сколько есть во флеше)
+    // 1) значения по умолчанию, 2) поверх - сохранённое (сколько есть во флеше)
     defaultsCo2();
     for (uint8_t i = 0; i < FANS_MAX; i++) initFan(i);
     memset(&vars, 0, sizeof(vars));

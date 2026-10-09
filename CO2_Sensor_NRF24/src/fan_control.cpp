@@ -1,14 +1,14 @@
-// fan_control.cpp — перенос CO2_Averaging(), CO2_set_fans_speed_current(), user_loop(),
+// fan_control.cpp - перенос CO2_Averaging(), CO2_set_fans_speed_current(), user_loop(),
 // send_fans_speed_now() хаба (Old/ESP8266_WIFI/app/wireless_co2.c).
-// Отличие: CO2 берётся с собственного датчика (K22 или S8) раз в transmitPeriodS (у хаба — по приходу пакета датчика).
+// Отличие: CO2 берётся с собственного датчика (K22 или S8) раз в transmitPeriodS (у хаба - по приходу пакета датчика).
 //
-// Режимы связи (Cfg::co2.radioMode, переключаются на лету — по изменению настроек):
-//   активный  — раз в transmitPeriodS (и по sendNow) пакет каждому вентилятору на его канале (хаб ESP8266);
-//   пассивный — вентилятор i шлёт запрос (1 байт состояния) на канал приёма i общего канала passiveChannel,
+// Режимы связи (Cfg::co2.radioMode, переключаются на лету - по изменению настроек):
+//   активный  - раз в transmitPeriodS (и по sendNow) пакет каждому вентилятору на его канале (хаб ESP8266);
+//   пассивный - вентилятор i шлёт запрос (1 байт состояния) на канал приёма i общего канала passiveChannel,
 //               хаб отвечает в ACK заранее подготовленным {CO2, скорость, пауза} (хаб Old/CO2UART, user_loop).
-//               Вентиляторов в пассивном режиме — до PASSIVE_FANS_MAX (3) = TX FIFO nRF24: ответ лежит наготове
+//               Вентиляторов в пассивном режиме - до PASSIVE_FANS_MAX (3) = TX FIFO nRF24: ответ лежит наготове
 //               для каждого; после запроса ответ этому вентилятору кладётся снова, новые CO2/скорость
-//               (раз в transmitPeriodS, sendNow) — сброс и загрузка заново. Вентиляторы с номера 4 — без связи.
+//               (раз в transmitPeriodS, sendNow) - сброс и загрузка заново. Вентиляторы с номера 4 - без связи.
 #include "fan_control.h"
 #include <Arduino.h>
 #include <time.h>
@@ -42,7 +42,7 @@ static uint32_t  s_nextTick     = 0;
 static uint16_t  s_pending      = 0;     // битовая маска вентиляторов к отправке
 static bool      s_sending      = false;
 static uint8_t   s_sendFan      = 0;
-static_assert(FANS_MAX <= 16, "s_pending — 16 бит");
+static_assert(FANS_MAX <= 16, "s_pending - 16 бит");
 
 // Пассивный режим
 constexpr uint32_t FNV_OFFSET   = 2166136261u;   // FNV-1a: подпись настроек радио
@@ -57,7 +57,7 @@ static uint8_t   s_ackNext      = 0;             // с какого канала
 static bool      s_ackReload    = false;         // сбросить ответы и загрузить заново (новые данные)
 static uint32_t  s_lastRxS      = 0;             // аптайм последнего запроса / перенастройки, с
 static uint32_t  s_rxCount      = 0;
-static_assert(RADIO_PIPES_MAX <= 8, "s_ackLoaded — 8 бит");
+static_assert(RADIO_PIPES_MAX <= 8, "s_ackLoaded - 8 бит");
 
 void begin(uint32_t now)
 {
@@ -95,7 +95,7 @@ static void applyRadio()
     s_lastRxS = Net::uptimeS();
     if (Cfg::co2.radioMode == RADIO_PASSIVE) {
         uint8_t addr[PASSIVE_FANS_MAX];
-        s_pipes = Cfg::co2.fans < PASSIVE_FANS_MAX ? Cfg::co2.fans : PASSIVE_FANS_MAX;   // остальные — без связи
+        s_pipes = Cfg::co2.fans < PASSIVE_FANS_MAX ? Cfg::co2.fans : PASSIVE_FANS_MAX;   // остальные - без связи
         for (uint8_t i = 0; i < s_pipes; i++) addr[i] = Cfg::fans[i].addressLsb;
         if (!Radio::setPassive(Cfg::co2.passiveChannel, addr, s_pipes)) Serial.println("nRF24: адрес приёма не записался");
         s_ackReload = true;
@@ -121,7 +121,7 @@ static void averaging(uint16_t co2)
 
 static uint16_t hhmmToMin(uint16_t v) { return (v / HHMM_DIV) * MIN_PER_HOUR + v % HHMM_DIV; }
 
-// now_night по расписанию; без синхронизированного времени — «не ночь»
+// now_night по расписанию; без синхронизированного времени - «не ночь»
 static bool calcNight()
 {
     if (!Net::timeValid()) return false;
@@ -159,7 +159,7 @@ static int8_t applyOverride(int8_t fsp, uint8_t mode, int8_t speed)
     }
 }
 
-// CO2_set_fans_speed_current(); nfan = FAN_ALL — все
+// CO2_set_fans_speed_current(); nfan = FAN_ALL - все
 static void calcSpeeds(uint8_t nfan)
 {
     uint32_t sum = 0;
@@ -170,7 +170,7 @@ static void calcSpeeds(uint8_t nfan)
     for (speed = 0; speed < FAN_SPEED_MAX; speed++) {
         uint16_t tr = Cfg::co2.thresholds[speed];
         if (s_average < tr) {
-            // при снижении CO2 — понижать скорость только с запасом fans_speed_delta
+            // при снижении CO2 - понижать скорость только с запасом fans_speed_delta
             if (s_speedPrev <= speed || (uint16_t)(tr - s_average) >= Cfg::co2.speedDelta) break;
         }
     }
@@ -201,7 +201,7 @@ static void calcSpeeds(uint8_t nfan)
 void sendNow(uint8_t fan, bool calcSpeed)
 {
     if (calcSpeed) calcSpeeds(fan);
-    if (Cfg::co2.radioMode == RADIO_PASSIVE) { s_ackReload = true; return; }   // ответы в ACK — заново
+    if (Cfg::co2.radioMode == RADIO_PASSIVE) { s_ackReload = true; return; }   // ответы в ACK - заново
     if (fan == FAN_ALL) s_pending = (uint16_t)((1u << FANS_MAX) - 1);
     else if (fan < FANS_MAX) s_pending |= (uint16_t)(1u << fan);
 }
@@ -222,7 +222,7 @@ void fanOverride(uint8_t fan, char cmd, uint16_t minutes)
     sendNow(fan, !(f.flags & FAN_FLAG_FORCED));
 }
 
-// Таймауты принудительной скорости и (пассивный) молчания вентиляторов — раз в секунду (user_loop хаба)
+// Таймауты принудительной скорости и (пассивный) молчания вентиляторов - раз в секунду (user_loop хаба)
 static void tick()
 {
     const uint32_t up = Net::uptimeS();
@@ -233,7 +233,7 @@ static void tick()
             if (--st.forcedTimeoutS == 0) f.flags &= (uint8_t)~FAN_FLAG_FORCED;
         }
         if (Cfg::co2.radioMode == RADIO_PASSIVE && f.timeoutS && st.txOkUptimeS && !st.remoteOff &&
-            up - st.txOkUptimeS > f.timeoutS) st.txStatus = TX_TIMEOUT;   // «+8 — silence» хаба CO2UART
+            up - st.txOkUptimeS > f.timeoutS) st.txStatus = TX_TIMEOUT;   // «+8 - silence» хаба CO2UART
     }
 }
 
@@ -250,12 +250,12 @@ static SendData ackPacket(uint8_t fan)
 // Загрузить недостающие ответы в TX FIFO по кругу, пока есть место
 static void refillAcks()
 {
-    if (s_co2UptimeS == 0) return;   // CO2 ещё не измерен — без ответа (хаб CO2UART: if(CO2level))
+    if (s_co2UptimeS == 0) return;   // CO2 ещё не измерен - без ответа (хаб CO2UART: if(CO2level))
     for (uint8_t i = 0; i < s_pipes; i++) {
         const uint8_t fan = (uint8_t)((s_ackNext + i) % s_pipes);
         const uint8_t bit = (uint8_t)(1u << fan);
         if ((s_ackLoaded & bit) || (Cfg::fans[fan].flags & FAN_FLAG_SKIP)) continue;
-        if (!Radio::loadAck(fan, ackPacket(fan))) break;   // FIFO полон — остальные после следующих запросов
+        if (!Radio::loadAck(fan, ackPacket(fan))) break;   // FIFO полон - остальные после следующих запросов
         s_ackLoaded |= bit;
     }
     if (s_pipes) s_ackNext = (uint8_t)((s_ackNext + 1) % s_pipes);
@@ -295,13 +295,13 @@ static void passiveStep()
         s_lastRxS = Net::uptimeS();
         if (pipe >= s_pipes) continue;
         onRequest(pipe, buf[0]);
-        s_ackLoaded &= (uint8_t)~(1u << pipe);   // ответ ушёл с ACK этого запроса — положить следующий
+        s_ackLoaded &= (uint8_t)~(1u << pipe);   // ответ ушёл с ACK этого запроса - положить следующий
         refill = true;
     }
     if (refill) refillAcks();
-    // нет приёма дольше radioResetS — перезапуск модуля (nRF24_reset_time хаба CO2UART)
+    // нет приёма дольше radioResetS - перезапуск модуля (nRF24_reset_time хаба CO2UART)
     if (Cfg::co2.radioResetS && Net::uptimeS() - s_lastRxS > Cfg::co2.radioResetS) {
-        Serial.println("nRF24: нет запросов — перезапуск модуля");
+        Serial.println("nRF24: нет запросов - перезапуск модуля");
         applyRadio();
     }
 }
@@ -354,7 +354,7 @@ void update(uint32_t now, uint16_t co2, bool co2Valid)
         s_co2 = co2;
         s_co2UptimeS = Net::uptimeS();
         averaging(co2);
-        History::add(co2, TempSensor::valid() ? TempSensor::tenthsC() : HISTORY_NO_TEMP, s_co2UptimeS);   // температура — в тот же момент
+        History::add(co2, TempSensor::valid() ? TempSensor::tenthsC() : HISTORY_NO_TEMP, s_co2UptimeS);   // температура - в тот же момент
         sendNow(FAN_ALL, true);
     }
     if (Radio::isPassive()) passiveStep();

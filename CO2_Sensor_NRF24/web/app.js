@@ -1,18 +1,18 @@
-/* Общий код страниц. Прошивка отдаёт страницы как есть, данные — отдельно:
-     GET  /api/vars?cfg_fan_=N&g=main,fans — переменные одним JSON-объектом: только группы из
-                                  <body data-groups="main,fans"> (+ sys — всегда: подвал, период опроса);
-                                  без data-groups — все группы. Группы и их переменные — web.cpp (VAR_GROUPS);
-     POST /api/set              — запись, тело application/x-www-form-urlencoded в UTF-8
+/* Общий код страниц. Прошивка отдаёт страницы как есть, данные - отдельно:
+     GET  /api/vars?cfg_fan_=N&g=main,fans - переменные одним JSON-объектом: только группы из
+                                  <body data-groups="main,fans"> (+ sys - всегда: подвал, период опроса);
+                                  без data-groups - все группы. Группы и их переменные - web.cpp (VAR_GROUPS);
+     POST /api/set              - запись, тело application/x-www-form-urlencoded в UTF-8
                                   (URLSearchParams сам кодирует русский текст и спецсимволы: %D0%9A..., '+' -> %2B).
    Разметка страниц:
-     <div id="app_menu"></div>, <div id="app_footer"></div> — сюда app.js вставляет меню (со строкой
-                                      состояния) и подвал — общие для всех страниц (App.MENU);
-     data-var="имя"                 — текст элемента = значение переменной (обновляется при каждом опросе);
-     data-var="имя" data-fmt="time" — UTC-секунды -> местное время браузера ('---', если 0);
-     <input|select name="имя">      — поле формы заполняется значением переменной с тем же именем
-                                      (только при загрузке и после сохранения, не при опросе; hidden — не трогаются);
-     <form data-api>                — отправка в /api/set без перезагрузки; data-confirm="текст" — с подтверждением;
-     data-maxbytes="N"              — предел длины в байтах UTF-8 (кириллица — 2 байта на букву). */
+     <div id="app_menu"></div>, <div id="app_footer"></div> - сюда app.js вставляет меню (со строкой
+                                      состояния) и подвал - общие для всех страниц (App.MENU);
+     data-var="имя"                 - текст элемента = значение переменной (обновляется при каждом опросе);
+     data-var="имя" data-fmt="time" - UTC-секунды -> местное время браузера ('---', если 0);
+     <input|select name="имя">      - поле формы заполняется значением переменной с тем же именем
+                                      (только при загрузке и после сохранения, не при опросе; hidden - не трогаются);
+     <form data-api>                - отправка в /api/set без перезагрузки; data-confirm="текст" - с подтверждением;
+     data-maxbytes="N"              - предел длины в байтах UTF-8 (кириллица - 2 байта на букву). */
 'use strict';
 
 var App = {
@@ -23,7 +23,7 @@ var App = {
 		['/', 'Главная'],
 		['/history.htm', 'История'],
 		['/settings.htm', 'Настройки'],
-		['/info.htm', '?']                 /* система, память и буферы; вентиляторы — из «Настроек» */
+		['/info.htm', '?']                 /* система, память и буферы; вентиляторы - из «Настроек» */
 	],
 
 	/* ---------- общие части страниц ---------- */
@@ -91,7 +91,7 @@ var App = {
 			e.textContent = e.getAttribute('data-fmt') == 'time' ? App.timeText(v[n]) : v[n];
 		}
 	},
-	/* root — только поля внутри этого элемента (по умолчанию — вся страница) */
+	/* root - только поля внутри этого элемента (по умолчанию - вся страница) */
 	fillForms: function (v, root) {
 		var list = (root || document).querySelectorAll('input[name], select[name], textarea[name]');
 		for (var i = 0; i < list.length; i++) {
@@ -105,11 +105,11 @@ var App = {
 	},
 
 	/* ---------- обмен с устройством ---------- */
-	/* Загрузить переменные; fill — заполнить поля форм; done(v) — после успешной загрузки */
+	/* Загрузить переменные; fill - заполнить поля форм; done(v) - после успешной загрузки */
 	load: function (fill, done) {
 		var q = new URLSearchParams(), g = document.body.getAttribute('data-groups');
 		q.append(App.FAN_PARAM, App.fan());
-		/* g — без URLSearchParams: запятые как есть (прошивка всё равно декодирует %2C) */
+		/* g - без URLSearchParams: запятые как есть (прошивка всё равно декодирует %2C) */
 		fetch('/api/vars?' + q.toString() + (g ? '&g=' + g : ''), { cache: 'no-store' })
 			.then(function (r) {
 				if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -130,7 +130,7 @@ var App = {
 				App.status('Нет связи с устройством (' + e.message + ')', true);
 			});
 	},
-	/* Опрос каждые ms (0 — не опрашивать): обновляются data-var, затем each(v) */
+	/* Опрос каждые ms (0 - не опрашивать): обновляются data-var, затем each(v) */
 	poll: function (ms, each) {
 		if (!(ms > 0)) return;
 		clearTimeout(App._pollTimer);
@@ -141,7 +141,7 @@ var App = {
 			App.poll(ms, each);
 		}, ms);
 	},
-	/* Запись переменных: params — объект {имя: значение}, URLSearchParams или FormData.
+	/* Запись переменных: params - объект {имя: значение}, URLSearchParams или FormData.
 	   Выбранный вентилятор подставляется первым (поля cfg_fan_* относятся к нему), если не указан явно. */
 	send: function (params, done) {
 		var p = new URLSearchParams(params), body = new URLSearchParams();
@@ -166,7 +166,7 @@ var App = {
 			var e = list[i], max = Number(e.getAttribute('data-maxbytes')), len = App.utf8Len(e.value);
 			if (len > max) {
 				App.status('Слишком длинно: ' + len + ' байт при пределе ' + max +
-					' (русская буква — 2 байта)', true);
+					' (русская буква - 2 байта)', true);
 				e.focus();
 				return false;
 			}
@@ -174,7 +174,7 @@ var App = {
 		return true;
 	},
 	/* Формы data-api: отправка без перезагрузки, затем перечитать значения (прошивка их проверяет и ограничивает).
-	   Заполняется заново только отправленная форма — несохранённые правки в других формах страницы остаются. */
+	   Заполняется заново только отправленная форма - несохранённые правки в других формах страницы остаются. */
 	bindForms: function (after) {
 		var forms = document.querySelectorAll('form[data-api]');
 		for (var i = 0; i < forms.length; i++) {

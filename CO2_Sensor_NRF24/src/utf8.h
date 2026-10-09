@@ -1,11 +1,11 @@
-// utf8.h — строки UTF-8 в полях фиксированного размера (имена вентиляторов, SSID и т.п.)
+// utf8.h - строки UTF-8 в полях фиксированного размера (имена вентиляторов, SSID и т.п.)
 // Тест на ПК: sh Scripts/test_utf8.sh
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
-// Длина ведущего байта последовательности UTF-8 (1 — ASCII или испорченный байт)
+// Длина ведущего байта последовательности UTF-8 (1 - ASCII или испорченный байт)
 inline size_t utf8SeqLen(uint8_t lead)
 {
     if ((lead & 0xE0) == 0xC0) return 2;
@@ -15,7 +15,7 @@ inline size_t utf8SeqLen(uint8_t lead)
 }
 
 // Копирование с обрезкой по границе символа: в конце не остаётся половины буквы
-// (кириллица — 2 байта, «№» — 3 байта). size — размер dst вместе с '\0'.
+// (кириллица - 2 байта, «№» - 3 байта). size - размер dst вместе с '\0'.
 inline void copyUtf8(char* dst, const char* src, size_t size)
 {
     if (size == 0) return;

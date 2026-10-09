@@ -1,4 +1,4 @@
-// lgfx_board.h — конфигурация LovyanGFX под выбранную плату (пины из config.h)
+// lgfx_board.h - конфигурация LovyanGFX под выбранную плату (пины из config.h)
 #pragma once
 #include "lgfx_include.h"
 #include "config.h"
@@ -79,7 +79,7 @@ public:
             cfg.pin_int    = TOUCH_PIN_INT;
             cfg.pin_rst    = TOUCH_PIN_RST;
             cfg.bus_shared = false;
-            cfg.offset_rotation = 0;   // если касания зеркальны/повёрнуты — подобрать 0..7
+            cfg.offset_rotation = 0;   // если касания зеркальны/повёрнуты - подобрать 0..7
             cfg.i2c_port   = I2C_PORT;
             cfg.i2c_addr   = TOUCH_I2C_ADDR;
             cfg.pin_sda    = I2C_PIN_SDA;
