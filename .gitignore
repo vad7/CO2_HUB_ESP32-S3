@@ -37,6 +37,9 @@ Fan/Release/
 *.atsuo
 *.pdsprj.*.workspace
 Fan/Last Loaded *.DBK
+Fan/scripts/
+Fan/work/
+Fan/CLAUDE.md
 
 # --- Claude Code: личные разрешения (у каждого свои), в репозиторий не нужны ---
 **/.claude/settings.local.json
