@@ -29,3 +29,14 @@ work/check_*.py
 work/*.cpp.txt
 work/fonts/*
 !work/fonts/Montserrat-SemiBold.ttf
+
+# --- Fan/ (ATtiny44A, Atmel Studio 6.2, Proteus): служебные и резервные файлы IDE ---
+Fan/debug/
+Fan/Debug/
+Fan/Release/
+*.atsuo
+*.pdsprj.*.workspace
+Fan/Last Loaded *.DBK
+
+# --- Claude Code: личные разрешения (у каждого свои), в репозиторий не нужны ---
+**/.claude/settings.local.json

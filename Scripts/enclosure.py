@@ -135,8 +135,6 @@ TD_BTN_GAP = 0.2                           # зазор наконечника �
 TD_CLR_SIDE = 1.5                          # зазор по бокам платы K22 (определяет ширину корпуса)
 TD_NRF_X = -11.0                           # nRF24 по X (левее центра: по центру, 17 мм от верха - шуруп в стену)
 TD_NRF_VERTICAL = True                     # nRF24 длинной стороной вдоль Y (антенна вверх): освобождает место для шурупов
-TD_CABLE_X = -22.0                         # заужение под провод по X (левее, не задевая нижний блок)
-TD_BOT_SLOT_HALF = 17.0                    # нижние щели: симметрично, в пределах ±X
 TD_WALLHOLE_X = 24.0                       # заужения под шурупы в стену: ±X, по Y - на уровне центра экрана (сбоку от nRF24)
 
 # --- саморез Ø2.5 x 6 (диаметр измерен; угловые отверстия K22, ухо nRF24) ---
@@ -161,6 +159,10 @@ K22_CORNER_HOLES = [(K22_CORNER_OFF, K22_W - K22_CORNER_OFF), (K22_L - K22_CORNE
 K22_CORNER_POST_D = 5.5                    # угловые стойки: диаметр (отверстие SCREW25_PILOT)
 K22_CONNECTOR_UP = True                    # плата повёрнута на 180° относительно чертежа: разъём G+/G0/PWM и
                                            # контакты по краю - вверх (K22_HOLES, K22_CORNER_HOLES - по чертежу)
+K22_SHIFT_X = -4.0                         # ES3C28P: K22 левее центра корпуса (справа - место проводам разъёма)
+K22_TALL_XY = (40.4, 55.4)                 # высокая деталь (цилиндр) у края платы: центр по чертежу (от левого
+                                           # нижнего угла, разъём внизу) - оценка по рисунку ±0.5
+K22_TALL_D, K22_TALL_H = 8.4, 15.5         #   диаметр и высота над платой (оценка по рисунку; проверка разъёма питания)
 K22_PILOT_BOTTOM = 0.8                     # дно отверстия от наружной поверхности дна (снаружи остаётся 0.8 мм)
 K22_CLEAR_TOP = 2.0                        # зазор над камерой K22
 
@@ -190,6 +192,7 @@ S8_PIN_ZONE = 4.0                          # макет: выводы у тор�
 S8_WIRES_H = 3.5                           # макет: провода над выводами (оба торца: питание и UART) - паять и сразу вбок
 S8_ZONE_GAP = 3.0                          # между зоной датчика и зоной экрана
 S8_TOP_CLR = 1.0                           # от направляющих до верха зоны датчика
+S8_RAISE_Y = 5.0                           # S8 выше низа зоны датчика: под ним - лепестки разъёма питания
 S8_NRF_TOP_CLR = 1.0                       # глубина корпуса: зазор над головкой самореза уха nRF24 до крышки
 
 # --- уши-прижимы (вариант TDisplayS3_S8): плоские планки с отверстием под M3, печать плашмя ---
@@ -246,20 +249,36 @@ NRF_FLAT_WIRES_H = 6.0                     # макет: припаянные п
 # --- вентиляция корпуса (узкие щели - меньше пыли; щели вертикальные - без мостов при печати) ---
 SLOT_W = 1.2                               # ширина щели
 SLOT_PITCH = 3.4                           # шаг щелей
-SIDE_SLOT_Y = (11.0, 49.0)                 # боковые щели: диапазон по Y от низа платы K22
-BOT_SLOT_LEN = 28.0                        # щели нижней стенки (вдоль Z)
-BOT_SLOT_HALF = 26.0                       # ES3C28P: щели нижней стенки симметрично, в пределах ±X
+SIDE_SLOT_Y = (11.0, 49.0)                 # боковые щели: диапазон по Y от низа платы K22 (низ - по ES3C28P:
+                                           # у T-Display + K22 плата выше, нижняя щель - на той же высоте, что у ES)
 LIDVENT_X = 31.0                           # щели крышки «на стену»: в пределах ±X
 LIDVENT_Y_MARGIN = 3.0                     # щели крышки: отступ от краёв платы K22 (зоны S8) по Y
-S8_LIDVENT_EXTRA = 6.0                     # S8: щели крышки по X - на столько шире датчика с каждой стороны
-S8_BOT_SLOT_DOWN = 1.0                     # S8: нижние щели - от низа датчика минус это...
-S8_BOT_SLOT_TOP = 1.0                      #   ...до (верх стенки - это): к зазору над окном; юбка крышки над ними вырезана
+# щели боковых и нижней стенки - все одной длины по глубине (Z). С K22 (ES3C28P, T-Display): по центру собранного
+# корпуса, отступ от наружной поверхности стены (Z = 0) и лица крышки (Z = D). S8: от верха направляющих S8
+# до верха стенки - открыты сверху (закрывает крышка)
+VENT_FROM_OUTER = 8.0                      # отступ щелей от стены и от лица крышки (варианты с K22), мм
+
+# --- разъём питания DC-022B 5.5 x 2.1 в нижней стенке (Docs/DC-022B_5.5x2.1.png; резьба и гайка - измерено) ---
+# Буртик снаружи, гайка изнутри; длины - от наружного торца буртика. В стенке - заужение изнутри до мембраны
+# MEMBRANE (снаружи гладко), каплевидное - печать без поддержек; просверлить Ø DC_HOLE_D (ступенчатым сверлом).
+# Лепестки ставить один над другим (по Z).
+DC_THREAD_D = 8.0                          # резьба M8 x 0.75 (измерено; на чертеже M8x1)
+DC_HOLE_D = 8.4                            # заужение и отверстие в стенке (сверлить)
+DC_FLANGE_D, DC_FLANGE_T = 10.0, 3.8       # буртик: диаметр, толщина
+DC_THREAD_L = 9.0                          # от торца буртика до конца резьбы (чертёж)
+DC_BODY_L = 12.0                           # до конца корпуса Ø8 (чертёж)
+DC_LEN = 18.0                              # до концов лепестков (чертёж)
+DC_BODY_D = 8.0                            # корпус и лепестки - в пределах Ø8 (между лепестками 7 и 5, чертёж)
+DC_NUT_S = 11.0                            # гайка: размер под ключ (измерено)
+DC_NUT_CLR = 0.6                           # зазор вокруг описанной окружности гайки (вращение ключом)
+DC_SOLDER_L = 1.0                          # макет: пайка за концами лепестков
+DC_WIRES_H = 2.5                           # макет: провода от лепестков сразу вверх (к крышке), дальше вбок
+DC_BLOCK_GAP = 0.5                         # K22: разъём справа - зона гайки до правого нижнего углового блока
+TD_S8_DC_X = -4.0                          # T-Display + S8: между nRF24 и S8 (ниже планки nRF24 и поднятого S8)
+DC_SLOT_MARGIN = 0.5                       # щели нижней стенки - не ближе к зоне гайки
 
 # --- заужения под сверление: с ВНУТРЕННЕЙ стороны стенок (снаружи гладко), остаётся мембрана ---
 MEMBRANE = 0.8                             # остаточная толщина мембраны (снаружи)
-CABLE_X = -33.0                            # ES3C28P: провод - заужение в нижней стенке у левой боковины
-CABLE_D = 8.0                              # диаметр заужения (каплевидная форма - без поддержек)
-CABLE_Z_OFF = 12.0                         # высота центра от внутренней поверхности дна
 WALLHOLE_X = 38.5                          # ES3C28P: заужения под шурупы в стену, ±X (по Y - между K22 и nRF24)
 # Крепёж: корпус -> стена, 2 шурупа 3.5-4 × 25-30 мм с полукруглой / прессшайбой головкой (Ø головки ≥ 7) + дюбели 5-6 мм
 WALLHOLE_D = 4.1                           # отверстие под шуруп в стену: на всю глубину до мембраны (проколоть шурупом / сверлить Ø4)
@@ -294,12 +313,13 @@ W = INNER_W + 2 * WALL
 BLOCK_X0 = INNER_W / 2 - BLOCK_W           # внутренняя грань углового блока (по модулю X)
 BLOCK_Y1_LOW = WALL + BLOCK_H              # верхняя грань нижнего блока
 # нижние блоки стоят рядом с K22 (ES3C28P) или под ним (T-Display: корпус уже платы K22 + блока)
-K22_Y0 = WALL + CLR_LOW if BLOCK_X0 >= K22_L / 2 + 0.5 else BLOCK_Y1_LOW + 0.6
+K22_XC = 0.0 if IS_TD else K22_SHIFT_X     # центр платы K22 по X (T-Display: по ширине места нет)
+K22_Y0 = WALL + CLR_LOW if BLOCK_X0 >= K22_L / 2 + abs(K22_XC) + 0.5 else BLOCK_Y1_LOW + 0.6
 K22_YC = K22_Y0 + K22_W / 2
 # S8: зона датчика по Y - зазор у нижней стенки, направляющие рёбер с обеих длинных сторон
 SENS_Y0 = (BLOCK_Y1_LOW + 0.6) if IS_S8 else K22_Y0     # низ зоны датчика (S8 - над нижними угловыми блоками)
 S8_GUIDE_YO = S8_W / 2 + S8_GUIDE_CLR                     # внутренняя грань направляющих от оси датчика
-S8_YC = SENS_Y0 + S8_GUIDE_T + S8_GUIDE_YO                # ось датчика S8 по Y
+S8_YC = SENS_Y0 + S8_RAISE_Y + S8_GUIDE_T + S8_GUIDE_YO   # ось датчика S8 по Y
 NRF_FLAT = IS_S8                                          # nRF24 плашмя (вариант S8)
 NRF_FLAT_Y0 = SENS_Y0                                     # nRF24 плашмя: торец антенны (низ платы)
 SENS_Y1 = (max(S8_YC + S8_GUIDE_YO + S8_GUIDE_T, NRF_FLAT_Y0 + NRF_L) + S8_TOP_CLR) if IS_S8 \
@@ -329,6 +349,9 @@ NRF_FLAT_HALF = NRF_CLAMP_X + NRF_CLAMP_POST_D / 2                          # п
 NRF_FLAT_XC = -INNER_W / 2 + NRF_S8_WALL_GAP + NRF_FLAT_HALF               # ось модуля по X
 NRF_FLAT_ZB = BACK_T + NRF_BOSS_H                                           # низ платы модуля
 D = ZL + LID_T
+VENT_Z0, VENT_Z1 = ((S8_Z0 + S8_GUIDE_H, ZL) if IS_S8 else
+                    (VENT_FROM_OUTER, D - VENT_FROM_OUTER))           # щели стенок по Z (все одинаковые)
+VENT_CUT_Z1 = ZL + 1.0 if VENT_Z1 >= ZL else VENT_Z1                  # выше верха стенки - открыта сверху
 Z_PCB = ZL - POST_H                        # ES3C28P: лицевая сторона платы экрана
 BLOCK_Y0_TOP = H - WALL - BLOCK_H          # нижняя грань верхнего блока
 BLOCK_XC = INNER_W / 2 - BLOCK_W / 2       # ось винта по X (по модулю)
@@ -338,8 +361,12 @@ ES_WIN_L = 2 * (VA_OFFSET_X + VA_L / 2 + VA_MARGIN)   # окно ES3C28P по ц
 ES_WIN_W = VA_W + 2 * VA_MARGIN
 TD_WIN_L, TD_WIN_W = TD_GLASS_L - 2 * TD_WIN_INSET, TD_GLASS_W - 2 * TD_WIN_INSET
 NRF_X_A = (-INNER_W / 2 + NRF_S8_WALL_GAP + NRF_L / 2) if IS_S8 else (TD_NRF_X if IS_TD else NRF_X)
-CABLE_X_A = TD_CABLE_X if IS_TD else CABLE_X
-BOT_HALF_A = TD_BOT_SLOT_HALF if IS_TD else BOT_SLOT_HALF
+DC_NUT_R = DC_NUT_S / math.sqrt(3) + DC_NUT_CLR        # зона гайки: описанная окружность + зазор
+DC_X_A = TD_S8_DC_X if IS_S8 else BLOCK_X0 - DC_NUT_R - DC_BLOCK_GAP   # K22: справа, у нижнего блока
+DC_Z = (BACK_T + ZL) / 2 if IS_S8 else D / 2           # ось разъёма: S8 - посередине стенки (гайка между дном
+                                                       # и крышкой), K22 - по центру собранного корпуса
+DC_NUT_Y1 = DC_THREAD_L - DC_FLANGE_T                  # конец резьбы внутри (от наружной поверхности стенки)
+DC_LUG_Y1 = DC_LEN - DC_FLANGE_T                       # концы лепестков
 WALLHOLE_X_A = TD_WALLHOLE_X if IS_TD else WALLHOLE_X
 TOPHOLE_FROM_TOP_A = TD_TOPHOLE_FROM_TOP if IS_TD else TOPHOLE_FROM_TOP
 NRF_VERT = IS_TD and TD_NRF_VERTICAL and not IS_S8   # nRF24 длинной стороной вдоль Y
@@ -413,7 +440,7 @@ def k22_xy(hx, hy):
     K22_CONNECTOR_UP - плата повёрнута на 180° (разъём вверху)."""
     if K22_CONNECTOR_UP:
         hx, hy = K22_L - hx, K22_W - hy
-    return hx - K22_L / 2, K22_YC + hy - K22_W / 2
+    return K22_XC + hx - K22_L / 2, K22_YC + hy - K22_W / 2
 
 
 def nrf_xy(s, n):
@@ -536,18 +563,45 @@ def nrf_ear_in_place():
     return e.rotate((0, 0, 0), (0, 0, 1), ang).translate((x0, y0, BACK_T + NRF_FIX_H))
 
 
-def teardrop_pocket(cx, zc, d):
-    """Каплевидное заужение с ВНУТРЕННЕЙ стороны нижней стенки (снаружи гладко, мембрана MEMBRANE).
-    Вершина капли вверх (+Z) - без поддержек."""
-    r = d / 2
-    y_from = WALL + 0.5                       # начало выдавливания (внутри полости)
-    depth = y_from - MEMBRANE                 # до мембраны
-    k = r * math.sqrt(2)
+def dc_hole():
+    """Заужение под разъём DC-022B с ВНУТРЕННЕЙ стороны нижней стенки (снаружи гладко, мембрана MEMBRANE):
+    круг DC_HOLE_D, вершина капли вверх (+Z) - без поддержек. Отверстие - просверлить."""
+    r = DC_HOLE_D / 2
     c45 = r * math.cos(math.pi / 4)
-    circle = cq.Workplane("XZ", origin=(0, y_from, 0)).center(cx, zc).circle(r).extrude(depth)
+    k = r * math.sqrt(2)
+    y_from = WALL + 0.5                               # начало выдавливания (внутри полости)
+    depth = y_from - MEMBRANE                         # до мембраны
+    circle = cq.Workplane("XZ", origin=(0, y_from, 0)).center(DC_X_A, DC_Z).circle(r).extrude(depth)
     tip = (cq.Workplane("XZ", origin=(0, y_from, 0))
-           .polyline([(cx - c45, zc + c45), (cx, zc + k), (cx + c45, zc + c45)]).close().extrude(depth))
+           .polyline([(DC_X_A - c45, DC_Z + c45), (DC_X_A, DC_Z + k), (DC_X_A + c45, DC_Z + c45)]).close().extrude(depth))
     return circle.union(tip)
+
+
+def ycyl(x, z, d, y0, y1):
+    """Цилиндр с осью вдоль Y."""
+    return cq.Workplane("XZ", origin=(0, y1, 0)).center(x, z).circle(d / 2).extrude(y1 - y0)
+
+
+def dc_parts():
+    """Разъём DC-022B (деталь) и проверочные зоны: вращение гайки, пайка и провода вверх."""
+    x, z = DC_X_A, DC_Z
+    jack = (ycyl(x, z, DC_FLANGE_D, -DC_FLANGE_T, 0)
+            .union(ycyl(x, z, DC_BODY_D, -0.01, DC_BODY_L - DC_FLANGE_T))
+            .union(ycyl(x, z, DC_BODY_D, DC_BODY_L - DC_FLANGE_T - 0.01, DC_LUG_Y1)))
+    nut = ycyl(x, z, 2 * DC_NUT_R, WALL, DC_NUT_Y1)
+    y_w0 = DC_BODY_L - DC_FLANGE_T
+    wires = (ycyl(x, z, DC_BODY_D, DC_LUG_Y1, DC_LUG_Y1 + DC_SOLDER_L)
+             .union(box(x - DC_BODY_D / 2, x + DC_BODY_D / 2, y_w0, DC_LUG_Y1 + DC_SOLDER_L,
+                        z + DC_BODY_D / 2, z + DC_BODY_D / 2 + DC_WIRES_H)))
+    return {"dc_jack": jack, "dc_nut": nut, "dc_wires": wires}
+
+
+def k22_detail():
+    """K22 подробнее (для проверки разъёма питания): плата + высокая деталь у края (оценка по чертежу)."""
+    z0 = BACK_T + K22_STAND_H
+    x, y = k22_xy(*K22_TALL_XY)
+    return (box(K22_XC - K22_L / 2, K22_XC + K22_L / 2, K22_Y0, K22_Y0 + K22_W, z0, z0 + K22_T)
+            .union(cyl(x, y, K22_TALL_D, z0 + K22_T - 0.01, z0 + K22_T + K22_TALL_H)))
 
 
 def corner_block(sx, top):
@@ -568,8 +622,9 @@ def _sym_xs(half):
 
 
 def side_slot_ys():
-    """Центры боковых щелей по Y: напротив K22 (SIDE_SLOT_Y от низа платы K22) или зоны датчика S8."""
-    y0, y1 = (SENS_Y0 + 3.0, SENS_Y1 - 3.0) if IS_S8 else (K22_Y0 + SIDE_SLOT_Y[0], K22_Y0 + SIDE_SLOT_Y[1])
+    """Центры боковых щелей по Y: напротив K22 (SIDE_SLOT_Y от низа платы K22; нижняя - от низа корпуса как у
+    ES3C28P, где K22 стоит у нижней стенки) или зоны датчика S8."""
+    y0, y1 = (SENS_Y0 + 3.0, SENS_Y1 - 3.0) if IS_S8 else (WALL + CLR_LOW + SIDE_SLOT_Y[0], K22_Y0 + SIDE_SLOT_Y[1])
     ys, out = y0, []
     while ys <= y1:
         out.append(ys)
@@ -666,17 +721,20 @@ def _range_xs(x0, x1):
 
 
 def bottom_slot_xs():
-    """Центры щелей нижней стенки: симметрично относительно X = 0; S8 - под датчиком, мимо нижних блоков."""
+    """Центры щелей нижней стенки. K22: крайняя левая - от левого нижнего угла корпуса на том же расстоянии, что
+    нижняя боковая щель (от низа корпуса), дальше с шагом SLOT_PITCH до зоны гайки разъёма питания.
+    S8 - под датчиком, мимо нижних блоков."""
     if IS_S8:
-        return _range_xs(S8_XC - S8_L / 2, min(S8_XC + S8_L / 2, BLOCK_X0 - SLOT_W))
-    return _sym_xs(BOT_HALF_A)
+        xs = _range_xs(S8_XC - S8_L / 2, min(S8_XC + S8_L / 2, BLOCK_X0 - SLOT_W))
+    else:
+        x0 = -W / 2 + side_slot_ys()[0]
+        xs = [x0 + i * SLOT_PITCH for i in range(int((DC_X_A - x0) // SLOT_PITCH) + 1)]
+    return [x for x in xs if abs(x - DC_X_A) >= DC_NUT_R + SLOT_W / 2 + DC_SLOT_MARGIN]   # у разъёма питания - нет
 
 
 def lidvent_xs():
-    """Центры щелей крышки «на стену»: симметрично относительно X = 0, в пределах ±LIDVENT_X."""
-    if IS_S8:   # над датчиком (S8 у правой стенки): шире датчика на S8_LIDVENT_EXTRA, до юбки крышки
-        return _range_xs(S8_XC - S8_L / 2 - S8_LIDVENT_EXTRA,
-                         min(S8_XC + S8_L / 2 + S8_LIDVENT_EXTRA, INNER_W / 2 - LIP_T - LIP_CLR - SLOT_W))
+    """Центры щелей крышки «на стену»: симметрично относительно X = 0, в пределах ±LIDVENT_X (все варианты;
+    S8 - в обход штырьков, см. build_lid)."""
     return _sym_xs(LIDVENT_X)
 
 
@@ -722,22 +780,17 @@ def build_body():
     # третье - по центру, TOPHOLE_FROM_TOP от верха корпуса (за платой экрана дно свободно)
     body = body.cut(cyl(0, H - TOPHOLE_FROM_TOP_A, WALLHOLE_D, MEMBRANE, BACK_T + 0.5))
 
-    # боковые щели вдоль Z (вертикальные при печати - без мостов), напротив датчика
-    z_start, z_end = BACK_T + 4.0, ZL - 4.0
+    # щели боковых и нижней стенки вдоль Z (вертикальные при печати - без мостов): все одной длины, по центру
+    # собранного корпуса - VENT_Z0..VENT_Z1 (отступ от стены и лица крышки); выше верха стенки - открыты сверху
     for ys in side_slot_ys():
         for sx in (-1, 1):
             xa, xb = (W / 2 - WALL - 0.5, W / 2 + 0.5) if sx > 0 else (-W / 2 - 0.5, -W / 2 + WALL + 0.5)
-            body = body.cut(box(xa, xb, ys - SLOT_W / 2, ys + SLOT_W / 2, z_start, z_end))
-
-    # щели нижней стенки (вдоль Z), симметрично от углов; не длиннее глубины корпуса.
-    # S8: на уровне датчика и зазора над окном диффузии (воздух снизу идёт вдоль платы датчика к щелям крышки)
-    bz0, bz1 = (max(S8_Z0 - S8_BOT_SLOT_DOWN, BACK_T + 1.0), ZL - S8_BOT_SLOT_TOP) if IS_S8 else \
-        (BACK_T + 4.0, BACK_T + 4.0 + min(BOT_SLOT_LEN, ZL - 4.0 - (BACK_T + 4.0)))
+            body = body.cut(box(xa, xb, ys - SLOT_W / 2, ys + SLOT_W / 2, VENT_Z0, VENT_CUT_Z1))
     for x in bottom_slot_xs():
-        body = body.cut(box(x - SLOT_W / 2, x + SLOT_W / 2, -0.5, WALL + 0.5, bz0, bz1))
+        body = body.cut(box(x - SLOT_W / 2, x + SLOT_W / 2, -0.5, WALL + 0.5, VENT_Z0, VENT_CUT_Z1))
 
-    # заужение под провод: одно, в нижней стенке у левой боковины, с внутренней стороны (каплевидное)
-    body = body.cut(teardrop_pocket(CABLE_X_A, BACK_T + CABLE_Z_OFF, CABLE_D))
+    # разъём питания DC-022B: заужение в нижней стенке изнутри (сверлить)
+    body = body.cut(dc_hole())
 
     # вырез Type-C: на стороне USB
     sx = 1 if USB_SIDE == "right" else -1
@@ -892,9 +945,15 @@ def build_lid(vents):
     if uzc + USB_H / 2 > ZL - LIP_H:
         usx0, usx1 = (INNER_W / 2 - LIP_CLR - LIP_T - 1, INNER_W / 2 + 1) if USB_SIDE == "right" else (-INNER_W / 2 - 1, -INNER_W / 2 + LIP_CLR + LIP_T + 1)
         lip = lip.cut(box(usx0, usx1, uyc - USB_W / 2 - 1.0, uyc + USB_W / 2 + 1.0, ZL - LIP_H - 1, ZL + 1))
-    if IS_S8:   # нижние щели доходят почти до верха стенки - юбка напротив них вырезана
-        xs = bottom_slot_xs()
+    if VENT_Z1 > ZL - LIP_H:   # щели стенок доходят до юбки - напротив них юбка вырезана
+        xs, ys = bottom_slot_xs(), side_slot_ys()
         lip = lip.cut(box(xs[0] - 2.0, xs[-1] + 2.0, 0, WALL + LIP_CLR + LIP_T + 0.5, ZL - LIP_H - 1, ZL + 1))
+        for sx in (-1, 1):
+            xa, xb = sorted((sx * (INNER_W / 2 + 1), sx * (INNER_W / 2 - LIP_CLR - LIP_T - 0.5)))
+            lip = lip.cut(box(xa, xb, ys[0] - 2.0, ys[-1] + 2.0, ZL - LIP_H - 1, ZL + 1))
+    if DC_Z + DC_NUT_R > ZL - LIP_H:   # гайка разъёма питания достаёт до юбки - напротив неё юбка вырезана
+        lip = lip.cut(box(DC_X_A - DC_NUT_R - 0.5, DC_X_A + DC_NUT_R + 0.5, 0, WALL + LIP_CLR + LIP_T + 0.5,
+                          ZL - LIP_H - 1, ZL + 1))
     lid = lid.union(lip)
 
     # щели над K22 / S8 (версия «на стену»): вертикальные сквозные, без мостов; S8 - в обход штырьков
@@ -920,7 +979,7 @@ def build_lid(vents):
 
 def dummies():
     """Габаритные макеты (для проверки пересечений и сборки)."""
-    k22 = box(-K22_L / 2, K22_L / 2, K22_Y0, K22_Y0 + K22_W, BACK_T + K22_STAND_H, BACK_T + K22_STAND_H + K22_T + K22_HEIGHT)
+    k22 = box(K22_XC - K22_L / 2, K22_XC + K22_L / 2, K22_Y0, K22_Y0 + K22_W, BACK_T + K22_STAND_H, BACK_T + K22_STAND_H + K22_T + K22_HEIGHT)
     # nRF24 на ребре: плата + детали (кварц) со стороны -n; провода с разъёмами Dupont со стороны пинов (+n)
     nrf = nrf_box(0, NRF_L, -NRF_T / 2, NRF_T / 2, 0, NRF_W)
     nrf_parts = nrf_box(NRF_HOLD_A_S + NRF_POST_W / 2 + 0.3, NRF_HOLD_B_S - NRF_POST_W / 2 - 0.3,
@@ -953,7 +1012,7 @@ def dummies():
             "glass": tdbox(-TD_GLASS_W / 2, TD_GLASS_W / 2, TD_GLASS_Y0, TD_GLASS_Y0 + TD_GLASS_L, 0, 1.53),
             "pcb_parts": tdbox(-11.49, 11.49, 0.3, 53.5, pcb_back, pcb_back + TD_BACK_H),
             "usb": tdbox(-4.61, 4.34, -TD_USB_OUT, TD_LCD_Y0, 2.02, 5.18),
-            "nrf24": nrf, "nrf_parts": nrf_parts, "nrf_wires": nrf_wires,
+            "nrf24": nrf, "nrf_parts": nrf_parts, "nrf_wires": nrf_wires, **dc_parts(),
             # кнопки: толкатель 2.5 x 1.8 и корпус 3.5 x 3.4 (по STEP), до лица платы
             **{"btn%d" % (i + 1): tdbox(bx - 1.25, bx + 1.25, by - 0.9, by + 0.9, TD_BTN_TOP_D, pcb_front)
                .union(tdbox(bx - 1.75, bx + 1.75, by - 1.7, by + 1.7, TD_BTN_BODY_D, pcb_front))
@@ -963,7 +1022,7 @@ def dummies():
     parts = box(-PCB_L / 2 + 6, PCB_L / 2 - 6, PCB_Y0 + 4, PCB_Y0 + PCB_W - 4, Z_PCB - PCB_T - BACK_PARTS_H, Z_PCB - PCB_T)
     glass = box(-GLASS_L / 2, GLASS_L / 2, YD - GLASS_W / 2, YD + GLASS_W / 2, Z_PCB, Z_PCB + GLASS_H)
     return {"k22": k22, "pcb": pcb, "pcb_parts": parts, "glass": glass,
-            "nrf24": nrf, "nrf_parts": nrf_parts, "nrf_wires": nrf_wires}
+            "nrf24": nrf, "nrf_parts": nrf_parts, "nrf_wires": nrf_wires, **dc_parts()}
 
 
 def volume_of(a, b):
@@ -1030,14 +1089,15 @@ def layout(path):
         a.text(S8_XC, SENS_Y0 - 1.5, "S8 LP на дне: направляющие, штырьки крышки (пурп.)",
                ha="center", va="top", color="darkorange", fontsize=7)
     else:
-        rect(a, -K22_L / 2, K22_L / 2, K22_Y0, K22_Y0 + K22_W, ec="darkorange", lw=2)
+        rect(a, K22_XC - K22_L / 2, K22_XC + K22_L / 2, K22_Y0, K22_Y0 + K22_W, ec="darkorange", lw=2)
+        a.add_patch(Circle(k22_xy(*K22_TALL_XY), K22_TALL_D / 2, fill=False, ec="darkorange", ls="--"))
         for hx, hy in K22_HOLES:
             a.add_patch(Circle(k22_xy(hx, hy), K22_HOLE_D / 2, fill=False, ec="darkorange"))
         for hx, hy in K22_CORNER_HOLES:   # угловые отверстия: стойка и саморез 2.5 x 6
             a.add_patch(Circle(k22_xy(hx, hy), K22_CORNER_POST_D / 2, fill=False, ec="darkorange", ls=":"))
             a.add_patch(Circle(k22_xy(hx, hy), SCREW25_PILOT / 2, fill=False, ec="darkorange"))
     if not IS_S8:
-        a.text(0, K22_YC - 12, "K22 (камера до %.0f мм)\nщели крышки «на стену» - пунктир" % K22_HEIGHT, ha="center", va="center", color="darkorange")
+        a.text(K22_XC, K22_YC - 12, "K22 (камера до %.0f мм)\nщели крышки «на стену» - пунктир" % K22_HEIGHT, ha="center", va="center", color="darkorange")
     for x in lidvent_xs():
         a.plot([x, x], [SENS_Y0 + LIDVENT_Y_MARGIN, SENS_Y1 - LIDVENT_Y_MARGIN], c="darkorange", lw=1, ls="--")
     if IS_TD:
@@ -1107,10 +1167,12 @@ def layout(path):
     a.text(ux + (-3 if ux > 0 else 3), uy - USB_W / 2 - 4, "USB-C", color="m", ha="right" if ux > 0 else "left")
     for xs in bottom_slot_xs():
         a.plot([xs, xs], [0, WALL], c="r", lw=1.5)
-    a.add_patch(Circle((CABLE_X_A, 0), CABLE_D / 2, fill=False, ec="b", lw=2, ls="--"))
-    a.text(CABLE_X_A, -3, "под провод\n(заужение изнутри)", color="b", ha="center", va="top", fontsize=8)
+    rect(a, DC_X_A - DC_FLANGE_D / 2, DC_X_A + DC_FLANGE_D / 2, -DC_FLANGE_T, 0, ec="b", lw=2)
+    rect(a, DC_X_A - DC_BODY_D / 2, DC_X_A + DC_BODY_D / 2, 0, DC_LUG_Y1, ec="b", lw=1.5)
+    rect(a, DC_X_A - DC_NUT_R, DC_X_A + DC_NUT_R, WALL, DC_NUT_Y1, ec="b", ls=":")
+    a.text(DC_X_A, -DC_FLANGE_T - 0.5, "DC-022B", color="b", ha="center", va="top", fontsize=8)
     a.set_title("%s: вид спереди (крышка снята). Оранжевый - датчик (K22 / S8), зелёный - экран, красный - вентиляция и заужения дна, "
-                "синий - провод, фиолетовый - угловые блоки" % PREFIX, fontsize=8.5)
+                "синий - разъём питания, фиолетовый - угловые блоки" % PREFIX, fontsize=8.5)
     a.set_xlim(-W / 2 - 6, W / 2 + 6)
     a.set_ylim(-9, H + 4)
     a.set_aspect("equal")
@@ -1120,6 +1182,9 @@ def layout(path):
     rect(b, 0, ZL, 0, WALL, ec="k", lw=2)
     rect(b, 0, ZL, H - WALL, H, ec="k", lw=2)
     rect(b, ZL, D, 0, H, ec="gray", lw=2)
+    b.plot([VENT_Z0, min(VENT_Z1, ZL)], [WALL / 2] * 2, c="r", lw=4, alpha=.6)   # щели стенок (по Z)
+    b.text((VENT_Z0 + min(VENT_Z1, ZL)) / 2, WALL / 2 - 4, "щели стенок Z %.1f..%.1f" % (VENT_Z0, VENT_Z1),
+           color="r", ha="center", fontsize=7)
     if IS_S8:
         rect(b, S8_Z0, S8_Z0 + S8_H, S8_YC - S8_W / 2, S8_YC + S8_W / 2, ec="darkorange", lw=2)
         for sy in (-1, 1):
@@ -1128,8 +1193,6 @@ def layout(path):
         for _, y in s8_pins():
             rect(b, S8_Z0 + S8_H - S8_PIN_PRESS, ZL, y - S8_PIN_D / 2, y + S8_PIN_D / 2, ec="m", lw=1.5)
         b.text(S8_Z0 + S8_H / 2, S8_YC, "S8", color="darkorange", ha="center", va="center")
-        b.plot([S8_Z0 - S8_BOT_SLOT_DOWN, ZL - S8_BOT_SLOT_TOP], [WALL / 2] * 2, c="r", lw=4, alpha=.6)
-        b.text(ZL + 1, WALL / 2 - 4, "нижние щели", color="r", ha="center", fontsize=7)
     else:
         z_k = BACK_T + K22_STAND_H
         rect(b, BACK_T, z_k, K22_Y0, K22_Y0 + K22_W, ec="darkorange", ls=":")
@@ -1155,7 +1218,9 @@ def layout(path):
         _, _, ny0, ny1 = nrf_rect(0, NRF_L, -NRF_T / 2, NRF_T / 2)
         rect(b, BACK_T, BACK_T + NRF_W, ny0, ny1, ec="teal", lw=2)
         b.text(BACK_T + NRF_W / 2, (ny0 + ny1) / 2 - 3, "nRF24", color="teal", ha="center", va="center", fontsize=8)
-    b.add_patch(Circle((BACK_T + CABLE_Z_OFF, 0), CABLE_D / 2, fill=False, ec="b", lw=2, ls="--"))
+    rect(b, DC_Z - DC_FLANGE_D / 2, DC_Z + DC_FLANGE_D / 2, -DC_FLANGE_T, 0, ec="b", lw=2)
+    rect(b, DC_Z - DC_BODY_D / 2, DC_Z + DC_BODY_D / 2, 0, DC_LUG_Y1, ec="b", lw=1.5)
+    rect(b, DC_Z - DC_NUT_R, DC_Z + DC_NUT_R, WALL, DC_NUT_Y1, ec="b", ls=":")
     uz = usb_center()[1]
     b.plot([uz - USB_H / 2, uz + USB_H / 2], [uy, uy], c="m", lw=6, alpha=.6)
     b.text(uz, uy + 4, "USB-C", color="m", ha="center")
@@ -1186,7 +1251,7 @@ def preview(body, lid, dm, path):
     for i, (title, only_lid) in enumerate((("корпус + платы (без крышки)", False), ("крышка (вид сзади)", True))):
         ax = fig.add_subplot(1, 2, i + 1, projection="3d")
         items = [(lid, (0.85, 0.85, 0.9, 1.0))] if only_lid else [(body, (0.25, 0.5, 0.8, 1.0))] + [
-            (dm[k], (0.9, 0.55, 0.1, 0.9) if k in ("k22", "s8") else (0.2, 0.65, 0.3, 0.9)) for k in ("k22", "s8", "pcb", "glass", "nrf24") if k in dm]
+            (dm[k], (0.9, 0.55, 0.1, 0.9) if k in ("k22", "s8") else (0.2, 0.65, 0.3, 0.9)) for k in ("k22", "s8", "pcb", "glass", "nrf24", "dc_jack") if k in dm]
         for shape, col in items:
             verts, tris = shape.val().tessellate(0.15, 0.3)
             polys = [[(verts[a].x, verts[a].y, verts[a].z) for a in t] for t in tris]
@@ -1258,7 +1323,7 @@ def update_project():
 
 
 # ------------------------------------ основной сценарий ------------------------------------
-DUMMY_ZONES = ("s8_window", "s8_wires", "nrf_wires")   # макеты-зоны: в проверках есть, в сборку STEP не идут
+DUMMY_ZONES = ("s8_window", "s8_wires", "nrf_wires", "dc_nut", "dc_wires")   # макеты-зоны: в проверках есть, в сборку STEP не идут
 
 
 def over_xy(a, b):
@@ -1297,9 +1362,11 @@ def build_one():
     ok &= gap_top >= 0
     print("  пересечения макетов и деталей (мм3, должно быть 0):")
     press = len(S8_PIN_UV) * math.pi * (S8_PIN_D / 2) ** 2 * S8_PIN_PRESS     # S8: натяг штырьков крышки - норма
+    membrane = math.pi * (DC_BODY_D / 2) ** 2 * MEMBRANE      # разъём сквозь мембрану заужения (до сверления) - норма
     for k, d in dm.items():
         for pn, part in parts.items():
-            v = volume_of(part, d) - (press if k == "s8" and pn.startswith("lid") else 0)
+            v = volume_of(part, d) - (press if k == "s8" and pn.startswith("lid") else 0) \
+                - (membrane if k == "dc_jack" and pn == "body" else 0)
             ok &= v < 1.0
             if v >= 1.0:
                 print("    %-10s x %-9s %8.2f  <-- ПЕРЕСЕЧЕНИЕ" % (k, pn, v))
@@ -1353,9 +1420,25 @@ def build_one():
              min([ZL] + [d.val().BoundingBox().zmin for k, d in dm.items() if k in ("pcb", "pcb_parts")
                          and over_xy(d.val().BoundingBox(), nrf_ear_p.val().BoundingBox())])
              - nrf_top_z()))
+    # разъём питания DC-022B: корпус, зона гайки, провода - без пересечений с датчиком, nRF24 и его прижимом
+    dc_ok = True
+    others = [(k, d) for k, d in dm.items() if not k.startswith("dc_") and k != "k22"] + [("nrf_ear", nrf_ear_p)]
+    if not IS_S8:
+        others.append(("k22_detail", k22_detail()))
+    for dk in ("dc_jack", "dc_nut", "dc_wires"):
+        for nm, other in others:
+            v = volume_of(dm[dk], other)
+            if v >= 0.01:
+                dc_ok = False
+                print("    %s x %-9s %8.3f  <-- ПЕРЕСЕЧЕНИЕ" % (dk, nm, v))
+    ok &= dc_ok
+    print("  разъём DC-022B: X=%.1f, ось Z=%.1f, заужение Ø%.1f до мембраны; гайка %.0f под ключ (зона Ø%.1f, Z %.1f..%.1f), "
+          "резьбы под гайку %.1f мм; внутрь до Y=%.1f (+ пайка); %s"
+          % (DC_X_A, DC_Z, DC_HOLE_D, DC_NUT_S, 2 * DC_NUT_R, DC_Z - DC_NUT_R, DC_Z + DC_NUT_R, DC_NUT_Y1 - WALL,
+             DC_LUG_Y1, "без пересечений" if dc_ok else "ЕСТЬ ПРОБЛЕМЫ"))
     if IS_S8:   # вентиляция датчика (монтаж на стену): площади щелей и пути диффузии до окна
         n_b = len(bottom_slot_xs())
-        a_bot = n_b * SLOT_W * (ZL - S8_BOT_SLOT_TOP - max(S8_Z0 - S8_BOT_SLOT_DOWN, BACK_T + 1.0))
+        a_bot = n_b * SLOT_W * (min(VENT_Z1, ZL) - VENT_Z0)
         win = s8_window(ZL, D).val()
         lv = 0.0
         for x in lidvent_xs():
@@ -1365,8 +1448,7 @@ def build_one():
               "щели крышки над окном %.0f мм2; путь до окна: через крышку %.1f мм, от нижних щелей %.1f мм"
               % (S8_Z0, S8_Z0 - BACK_T, S8_XC - S8_L / 2, S8_XC + S8_L / 2, NRF_FLAT_XC - NRF_FLAT_HALF,
                  NRF_FLAT_XC + NRF_FLAT_HALF, S8_XC - S8_L / 2 - (NRF_FLAT_XC + NRF_FLAT_HALF),
-                 n_b, ZL - S8_BOT_SLOT_TOP - max(S8_Z0 - S8_BOT_SLOT_DOWN, BACK_T + 1.0), a_bot,
-                 max(S8_Z0 - S8_BOT_SLOT_DOWN, BACK_T + 1.0), ZL - S8_BOT_SLOT_TOP, lv, LID_T + S8_TOP_GAP,
+                 n_b, min(VENT_Z1, ZL) - VENT_Z0, a_bot, VENT_Z0, min(VENT_Z1, ZL), lv, LID_T + S8_TOP_GAP,
                  min(s8_xy(u, v)[1] for u, v in S8_WIN_UV) - WALL))
 
     # STL (крышки перевёрнуты лицевой стороной вниз), имена по плате; масштаб - компенсация усадки (for_print)
