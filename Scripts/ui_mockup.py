@@ -93,13 +93,23 @@ def seg_digit(d, x, y, ch, color):
         d.rectangle(box[s], fill=color)
 
 
-def fan_icon(d, cx, cy, color):
+def fan_icon(d, cx, cy, color, r=None):
+    r = r or FAN_R
     for a in range(0, 360, 120):
-        d.pieslice((cx - FAN_R, cy - FAN_R, cx + FAN_R, cy + FAN_R), a, a + 50, fill=color)
-    d.ellipse((cx - 2, cy - 2, cx + 2, cy + 2), fill=color)
+        d.pieslice((cx - r, cy - r, cx + r, cy + r), a, a + 50, fill=color)
+    hub = max(2, r // 4)
+    d.ellipse((cx - hub, cy - hub, cx + hub, cy + hub), fill=color)
 
 
 RED = (255, 0, 0)
+
+
+def fan_off_icon(d, cx, cy, color, r=None):
+    """Вентилятор, перечёркнутый красным крестиком (режим «вентиляторы выключены», ui.cpp drawFanOffIcon)."""
+    r = r or FAN_R
+    fan_icon(d, cx, cy, color, r)
+    d.line((cx - r, cy - r, cx + r, cy + r), fill=RED, width=2)
+    d.line((cx - r, cy + r, cx + r, cy - r), fill=RED, width=2)
 
 
 def hum_size(k):
@@ -168,11 +178,12 @@ def main_screen(w, h, title, temp, hum, es_buttons=False, td_adjust=False, ttf=N
         x0 = (w - total) // 2
         for i, ch in enumerate(co2):
             seg_digit(d, x0 + i * (DIGIT_W + 12), cy - DIGIT_H // 2, ch, WHITE)
-    if es_buttons:                                   # ряд из 4 кнопок; «Выход» - сверху справа, как в меню
-        bw = w // 4
-        for i, t in enumerate(("+", "Меню", "[граф]", "-")):
+    if es_buttons:                                   # ряд из 5 кнопок; «Выход» - сверху справа, как в меню
+        bw = w // 5
+        for i, t in enumerate(("+", "Меню", "[граф]", "", "-")):
             d.rounded_rectangle((i * bw + 2, btn_y + 2, i * bw + bw - 2, btn_y + BTN_ROW_H - 2), 6, fill=NAVY)
             d.text((i * bw + bw // 2, btn_y + BTN_ROW_H // 2), t, font=F_TEXT, fill=WHITE, anchor="mm")
+        fan_off_icon(d, 3 * bw + bw // 2, btn_y + BTN_ROW_H // 2, WHITE, 13)   # «вентиляторы выкл.»
         top = HEADER_H + MARGIN * 2
         d.rounded_rectangle((w - 90 + 2, 2, w - 2, top - 2), 6, fill=NAVY)
         d.text((w - 45, top // 2), "Выход", font=F_TEXT, fill=WHITE, anchor="mm")

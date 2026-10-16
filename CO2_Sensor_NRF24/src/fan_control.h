@@ -32,6 +32,12 @@ namespace FanControl {
     // 'c' - снять принудительную скорость (cfg_fan_override хаба)
     void     fanOverride(uint8_t fan, char cmd, uint16_t minutes);
 
+    // Режим «вентиляторы выключены» (кнопка на экране): всем рассылается скорость 0, расчёт и принудительные
+    // скорости сохраняются - при выключении режима рассылка продолжается с них. Только в RAM (после перезапуска - выкл.)
+    void     setAllOff(bool off);
+    bool     allOff();
+    uint8_t  sentSpeed(uint8_t fan);    // скорость, которая уходит вентилятору (в режиме «выключены» - 0)
+
     const FanState& state(uint8_t fan);
     bool     isNight();             // now_night (по расписанию)
     bool     nightEffective();      // с учётом ручного переключателя

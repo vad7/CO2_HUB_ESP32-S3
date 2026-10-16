@@ -41,6 +41,7 @@ static uint32_t  s_nextCycle    = 0;
 static uint32_t  s_nextTick     = 0;
 static uint16_t  s_pending      = 0;     // битовая маска вентиляторов к отправке
 static bool      s_sending      = false;
+static bool      s_allOff       = false; // режим «вентиляторы выключены» - рассылается скорость 0
 static uint8_t   s_sendFan      = 0;
 static_assert(FANS_MAX <= 16, "s_pending - 16 бит");
 
@@ -206,6 +207,17 @@ void sendNow(uint8_t fan, bool calcSpeed)
     else if (fan < FANS_MAX) s_pending |= (uint16_t)(1u << fan);
 }
 
+void setAllOff(bool off)
+{
+    if (off == s_allOff) return;
+    s_allOff = off;
+    sendNow(FAN_ALL, false);   // сразу: 0 всем или рассчитанные / принудительные скорости
+}
+
+bool allOff() { return s_allOff; }
+
+uint8_t sentSpeed(uint8_t fan) { return s_allOff ? 0 : s_state[fan < FANS_MAX ? fan : 0].speedCurrent; }
+
 void fanOverride(uint8_t fan, char cmd, uint16_t minutes)
 {
     if (fan >= FANS_MAX) return;
@@ -242,7 +254,7 @@ static SendData ackPacket(uint8_t fan)
 {
     SendData pkt;
     pkt.CO2level = s_co2;
-    pkt.FanSpeed = s_state[fan].speedCurrent;
+    pkt.FanSpeed = sentSpeed(fan);
     pkt.Param    = Cfg::fans[fan].pauseS;
     return pkt;
 }
@@ -325,7 +337,7 @@ static void sendStep(uint32_t now)
         if (f.flags & FAN_FLAG_SKIP) continue;
         SendData pkt;
         pkt.CO2level = s_co2;
-        pkt.FanSpeed = s_state[fan].speedCurrent;
+        pkt.FanSpeed = sentSpeed(fan);
         pkt.Param    = 0;                    // Flags хаба ESP8266
         TxResult r = Radio::startTx(f.addressLsb, f.rfChannel, pkt, now);
         if (r == TxResult::Busy) {

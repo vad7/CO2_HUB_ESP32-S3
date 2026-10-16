@@ -56,7 +56,8 @@ constexpr const char* API_SET      = "api/set";
 constexpr const char* API_OTA      = "api/ota";
 // Пароль настроек: страницы и переменные /api/set без пароля
 static const char* const AUTH_PAGES[] = { "settings.htm", "setfans.htm" };
-static const char* const OPEN_VARS[]  = { "cfg_fan_", "cfg_fan_override", "cfg_vars_fans_speed_ov", "now_night_ov" };
+static const char* const OPEN_VARS[]  = { "cfg_fan_", "cfg_fan_override", "cfg_vars_fans_speed_ov", "now_night_ov",
+                                          "fans_off" };
 constexpr const char* AUTH_HDR     = "Authorization";
 constexpr const char* AUTH_BASIC   = "Basic ";
 constexpr size_t      AUTH_HDR_MAX = 128;              // «Basic » + base64(имя:пароль), пароль до 32 байт
@@ -317,6 +318,7 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "cfg_vars_fans_speed_ov"))   { Cfg::vars.speedOverride = (int8_t)clampL(v, -FAN_SPEED_MAX, FAN_SPEED_MAX); c.recalcAll = true; }
     else if (!strcmp(name, "cfg_vars_save"))            c.saveVars = v == 1;
     else if (!strcmp(name, "now_night_ov"))             { Cfg::nightOverride = (uint8_t)clampL(v, 0, NIGHT_OVR_COUNT - 1); c.recalcAll = true; }
+    else if (!strcmp(name, "fans_off"))                 FanControl::setAllOff(v == 1);   // все вентиляторы - скорость 0 (RAM)
     // --- сеть ---
     else if (!strcmp(name, "net_ssid"))                 copyUtf8(Cfg::net.ssid, val, sizeof(Cfg::net.ssid));
     else if (!strcmp(name, "net_pass"))                 { if (val[0]) copyUtf8(Cfg::net.pass, val, sizeof(Cfg::net.pass)); }
@@ -418,6 +420,7 @@ static void varsMain(Json& j, const ReqCtx&)
     j.num ("now_night",      FanControl::isNight() ? 1 : 0);
     j.num ("night",          FanControl::nightEffective() ? 1 : 0);
     j.num ("now_night_ov",   Cfg::nightOverride);
+    j.num ("fans_off",       FanControl::allOff() ? 1 : 0);
     j.num ("fan_speed_previous", FanControl::speedPrevious());
     j.unum("fsp_time_def",   FORCE_MINUTES_DEF);
     j.num ("cfg_vars_fans_speed_ov", Cfg::vars.speedOverride);
@@ -445,7 +448,7 @@ static void varsFans(Json& j, const ReqCtx&)
         j.str ("name", fi.name);
         j.unum("fl",   fi.flags);
         j.unum("fspt", st.forcedTimeoutS);   // до конца принудительной скорости, с (0 - без ограничения)
-        j.unum("spc",  st.speedCurrent);
+        j.unum("spc",  FanControl::sentSpeed(i));   // в режиме «вентиляторы выключены» - 0
         j.unum("tst",  st.txStatus);         // > 1 - ошибка передачи
         j.num ("ttm",  (long)Net::epochFromUptime(st.txOkUptimeS));
         if (co2.radioMode == RADIO_PASSIVE) {   // состояние, сообщённое вентилятором (пассивный режим)

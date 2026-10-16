@@ -4,9 +4,12 @@
 // Экран горизонтальный (LCD_ROTATION = 1).
 // Главный экран: шапка; цифры CO2; нижняя строка (иконки скорости, поправка «+1», справа температура и
 //   влажность x2) - видна всегда. Без действий UI_MAIN_BUTTONS_MS активная панель скрывается.
-//   ES (тач): касание - кнопки «+», «Меню», [график], «-» над нижней строкой и «Выход» сверху справа (как в меню).
+//   ES (тач): касание - кнопки «+», «Меню», [график], [вентиляторы выкл.], «-» над нижней строкой и «Выход»
+//     сверху справа (как в меню).
 //   TD (КН - коротко, ДН - долго; Boot сверху, IO14 снизу): ДН Boot - меню, КН Boot - график,
-//     КН IO14 - режим скорости (метки «+» у Boot и «-» у IO14): КН Boot «+», КН IO14 «-», ДН IO14 - выход.
+//     КН IO14 - режим скорости (метки «+» у Boot и «-» у IO14: КН Boot «+», КН IO14 «-», ДН IO14 - выход),
+//     ДН IO14 - вентиляторы выкл. / вкл. (в режиме скорости - ДН Boot).
+//   Режим «вентиляторы выключены» (FanControl::setAllOff): всем скорость 0, иконки скорости перечёркнуты красным.
 // График истории CO2: ES - свайп, «<» «>», «-» «+» масштаб, «Выход»;
 //   TD - КН IO14 к старым, КН Boot к новым, ДН Boot масштаб, ДН IO14 выход. UI_HISTORY_TIMEOUT_MS - выход.
 // Настройки - по группам (MENU_GROUPS): карточка группы -> карточки «параметр - значение».
@@ -55,7 +58,8 @@ constexpr int16_t  HEADER_H       = 26;
 constexpr int16_t  INFO_LINE_H    = 22;
 constexpr int16_t  BOTTOM_LINE_H  = 44;    // нижняя строка главного экрана: вентиляторы, поправка, температура x2
 constexpr uint8_t  TEMP_TEXT_SCALE = 2;    // температура и влажность на главном экране: шрифт 10x20 x2
-constexpr uint8_t  MAIN_BTN_COUNT = 4;     // ES: «+», «Меню», [график], «-» (ряд над нижней строкой; «Выход» - сверху справа)
+constexpr uint8_t  MAIN_BTN_COUNT = 5;     // ES: «+», «Меню», [график], [вентиляторы выкл.], «-» (ряд над нижней строкой;
+                                           // «Выход» - сверху справа)
 constexpr int16_t  ADJ_MARK_W     = 22;    // TD, режим скорости: метки «+» (у Boot) и «-» (у IO14) у левого края
 constexpr int16_t  ADJ_MARK_H     = 28;
 constexpr int16_t  BTN_ROW_H      = HAS_TOUCH ? 48 : 0;
@@ -67,6 +71,8 @@ constexpr int16_t  EXIT_BTN_H     = HEADER_H + MARGIN * 2;   // «Выход» /
 constexpr int16_t  FAN_ICON_R     = 8;     // иконка вентилятора: радиус
 constexpr int16_t  FAN_BLADE_DEG  = 50;    // ширина лопасти, градусы
 constexpr int16_t  FAN_BLADES_DEG = 120;   // шаг лопастей (3 лопасти)
+constexpr int16_t  FAN_BTN_ICON_R = 13;    // иконка вентилятора на кнопке «вентиляторы выкл.» (ES): радиус
+constexpr int16_t  FAN_CROSS_T    = 2;     // толщина красного крестика «выключено», px
 constexpr int16_t  CHART_ICON_W   = 28;    // иконка графика
 constexpr int16_t  CHART_ICON_H   = 22;
 constexpr int16_t  FAN_ICON_STEP  = 2 * FAN_ICON_R + 2;   // шаг иконок скорости в строке (промежуток 2 px: 6 иконок - 108 px)
@@ -150,8 +156,8 @@ constexpr uint16_t COL_AXIS    = TFT_LIGHTGREY;   // оси графика и п
 
 // ---------------- Ввод ----------------
 // Enter - TD: «войти глубже» (группа -> пункт -> редактирование); Hide - ES: «Выход» панели главного экрана;
-// Adjust - TD: режим скорости на главном экране
-enum class Key : uint8_t { None, Prev, Next, Dec, Inc, Menu, Exit, History, ShowButtons, Enter, Hide, Adjust };
+// Adjust - TD: режим скорости на главном экране; FansOff - режим «вентиляторы выключены» вкл. / выкл.
+enum class Key : uint8_t { None, Prev, Next, Dec, Inc, Menu, Exit, History, ShowButtons, Enter, Hide, Adjust, FansOff };
 enum class BtnEvent : uint8_t { None, Short, Long };
 enum class Screen : uint8_t { Main, Menu, History };
 
@@ -401,12 +407,22 @@ static int16_t mainBtnW() { return lcd.width() / MAIN_BTN_COUNT; }
 static int16_t adjPlusY() { return fansY() + INFO_LINE_H + MARGIN; }             // TD: метка «+» - у Boot (сверху)
 static int16_t adjMinusY(){ return infoY2() - ADJ_MARK_H - MARGIN; }             // TD: метка «-» - у IO14, над нижней строкой
 
-// Иконка вентилятора: 3 лопасти + ступица
-static void drawFanIcon(int16_t cx, int16_t cy, uint16_t color)
+// Иконка вентилятора: 3 лопасти + ступица; r - радиус
+static void drawFanIcon(int16_t cx, int16_t cy, uint16_t color, int16_t r = FAN_ICON_R)
 {
     for (int16_t a = 0; a < 360; a += FAN_BLADES_DEG)
-        lcd.fillArc(cx, cy, FAN_ICON_R / 4, FAN_ICON_R, a, a + FAN_BLADE_DEG, color);
-    lcd.fillCircle(cx, cy, FAN_ICON_R / 4, color);
+        lcd.fillArc(cx, cy, r / 4, r, a, a + FAN_BLADE_DEG, color);
+    lcd.fillCircle(cx, cy, r / 4, color);
+}
+
+// Вентилятор, перечёркнутый красным крестиком (режим «вентиляторы выключены»)
+static void drawFanOffIcon(int16_t cx, int16_t cy, uint16_t fanColor, int16_t r = FAN_ICON_R)
+{
+    drawFanIcon(cx, cy, fanColor, r);
+    for (int16_t d = 0; d < FAN_CROSS_T; d++) {
+        lcd.drawLine(cx - r + d, cy - r, cx + r + d - FAN_CROSS_T + 1, cy + r, COL_ERR);
+        lcd.drawLine(cx - r + d, cy + r, cx + r + d - FAN_CROSS_T + 1, cy - r, COL_ERR);
+    }
 }
 
 // Иконка графика: оси + ломаная (точки в долях 1/8 размера иконки)
@@ -460,9 +476,21 @@ static void drawMainExit()
 #endif
 }
 
+// Кнопка «вентиляторы выкл.» (ES, 4-я в ряду): пока вентиляторы работают - белый вентилятор с красным крестиком
+// (нажать - выключить), в режиме «выключены» - обычный вентилятор (нажать - включить)
+static void drawFansOffButton()
+{
+#if HAS_TOUCH
+    const int16_t w = mainBtnW(), y = mainBtnY(), cx = 3 * w + w / 2, cy = y + BTN_ROW_H / 2;
+    drawButton(3 * w, y, w, BTN_ROW_H, "");
+    if (FanControl::allOff()) drawFanIcon(cx, cy, COL_TEXT, FAN_BTN_ICON_R);
+    else                      drawFanOffIcon(cx, cy, COL_TEXT, FAN_BTN_ICON_R);
+#endif
+}
+
 // Активная панель главного экрана (s_btnShown): ES - касание экрана, TD - короткое IO14 (режим скорости).
 // Показывает строку скоростей вентиляторов под часами и
-//   ES: кнопки «+», «Меню», [график], «-» - над нижней строкой (она остаётся видна), «Выход» - сверху справа,
+//   ES: кнопки «+», «Меню», [график], [вентиляторы выкл.], «-» - над нижней строкой (она остаётся видна), «Выход» - сверху справа,
 //     на месте и в размер кнопки меню (поверх правого края шапки и строки скоростей);
 //   TD: метки «+» у Boot (сверху) и «-» у IO14 (снизу) у левого края - поправка внизу видна.
 static void showMainButtons(bool show)
@@ -477,7 +505,8 @@ static void showMainButtons(bool show)
         drawButton(w,     y, w, BTN_ROW_H, "Меню");
         drawButton(2 * w, y, w, BTN_ROW_H, "");
         drawChartIcon(2 * w + w / 2, y + BTN_ROW_H / 2, COL_TEXT);
-        drawButton(3 * w, y, lcd.width() - 3 * w, BTN_ROW_H, "-");
+        drawFansOffButton();
+        drawButton(4 * w, y, lcd.width() - 4 * w, BTN_ROW_H, "-");
         drawMainExit();
     } else {
         lcd.fillRect(0, y, lcd.width(), BTN_ROW_H, COL_BG);
@@ -510,7 +539,7 @@ static const char* fanStatusText(uint8_t fan, char* buf, size_t len)
     const char* forced = (f.flags & FAN_FLAG_FORCED) ? "*" : "";
     if (f.flags & FAN_FLAG_SKIP) { snprintf(buf, len, "x"); return buf; }
     switch (st.txStatus) {
-    case TX_OK:      snprintf(buf, len, "%u%s", st.speedCurrent, forced); break;
+    case TX_OK:      snprintf(buf, len, "%u%s", FanControl::sentSpeed(fan), forced); break;   // выключены - 0
     case TX_ERROR:   snprintf(buf, len, "нет"); break;
     case TX_TIMEOUT: snprintf(buf, len, "nRF?"); break;   // модуль не завершил передачу за RADIO_TX_TIMEOUT_MS
     default:         snprintf(buf, len, "-"); break;
@@ -757,20 +786,25 @@ static void drawMainDynamic(uint32_t now)
         }
     }
     // --- Нижняя строка (видна всегда, кнопки ES - над ней): скорость = число иконок вентилятора (0 - пусто),
+    //     в режиме «вентиляторы выключены» иконки перечёркнуты красным (при скорости 0 - одна);
     //     поправка «+1» - если ≠ 0; справа - температура и влажность (если датчик выбран в настройках) ---
-    const uint8_t speed = FanControl::baseSpeed();
+    const bool    fansOff = FanControl::allOff();
+    const uint8_t speed   = fansOff && FanControl::baseSpeed() == 0 ? 1 : FanControl::baseSpeed();
     char ovr[8] = "", temp[12] = "", hum[8] = "";
     if (Cfg::vars.speedOverride != 0) snprintf(ovr, sizeof(ovr), "%+d", Cfg::vars.speedOverride);
     const bool tempOk = TempSensor::valid();
     if (Cfg::co2.tempSensor != TEMP_SENSOR_NONE) tempText(temp, sizeof(temp), hum, sizeof(hum));
-    snprintf(buf, sizeof(buf), "%u|%s|%s|%s", speed, ovr, temp, hum);   // ключ кэша
+    snprintf(buf, sizeof(buf), "%u|%u|%s|%s|%s", speed, fansOff, ovr, temp, hum);   // ключ кэша
     if (strcmp(buf, s_shownInfo2) != 0) {
         strlcpy(s_shownInfo2, buf, sizeof(s_shownInfo2));
         const int16_t cy = infoY2() + BOTTOM_LINE_H / 2;
         const int16_t textX = MARGIN + speed * FAN_ICON_STEP + (speed ? MARGIN : 0);
         drawLine(ovr, infoY2(), BOTTOM_LINE_H, FONT_TEXT, COL_ERR, lgfx::middle_left, textX);   // поправка - красным
-        for (uint8_t i = 0; i < speed; i++)
-            drawFanIcon(MARGIN + FAN_ICON_R + i * FAN_ICON_STEP, cy, COL_TEXT);
+        for (uint8_t i = 0; i < speed; i++) {
+            const int16_t x = MARGIN + FAN_ICON_R + i * FAN_ICON_STEP;
+            if (fansOff) drawFanOffIcon(x, cy, COL_TEXT);
+            else         drawFanIcon(x, cy, COL_TEXT);
+        }
         if (temp[0]) {
             lcd.setFont(FONT_TEXT);
             drawTemp(temp, hum, cy, tempOk ? COL_TEXT : COL_DIM, (int16_t)(textX + (ovr[0] ? lcd.textWidth(ovr) : 0)));
@@ -1834,8 +1868,8 @@ static BtnEvent pollButton(Button& b, uint32_t now)
 }
 
 // Кнопки: A - BOOT (у T-Display сверху), B - IO14 (снизу); КН - коротко, ДН - долго (BTN_LONG_MS).
-//   Главный:  ДН Boot - меню; КН Boot - график; КН IO14 - режим скорости.
-//             В режиме скорости: КН Boot «+», КН IO14 «-», ДН IO14 - выход из режима, ДН Boot - меню.
+//   Главный:  ДН Boot - меню; КН Boot - график; КН IO14 - режим скорости; ДН IO14 - вентиляторы выкл. / вкл.
+//             В режиме скорости: КН Boot «+», КН IO14 «-», ДН IO14 - выход из режима, ДН Boot - вентиляторы выкл. / вкл.
 //   График:   КН IO14 - к старым, КН Boot - к новым, ДН Boot - масштаб (по кругу), ДН IO14 - выход.
 //   Меню:     КН Boot - след. группа / пункт, в редактировании «+»; КН IO14 - пред. / «-»;
 //             ДН Boot - войти (в группу / в редактирование пункта); ДН IO14 - назад (из пункта / группы / меню).
@@ -1847,10 +1881,10 @@ static Key buttonsToKey(uint32_t now)
     BtnEvent a = pollButton(s_btnA, now);
     BtnEvent b = pollButton(s_btnB, now);
     if (s_screen == Screen::Main) {
-        if (a == BtnEvent::Long)  return Key::Menu;
+        if (a == BtnEvent::Long)  return TWO_BUTTONS && s_btnShown ? Key::FansOff : Key::Menu;
         if (a == BtnEvent::Short) return !TWO_BUTTONS ? Key::None : s_btnShown ? Key::Inc : Key::History;
         if (b == BtnEvent::Short) return s_btnShown ? Key::Dec : Key::Adjust;
-        if (b == BtnEvent::Long)  return s_btnShown ? Key::Hide : Key::None;
+        if (b == BtnEvent::Long)  return s_btnShown ? Key::Hide : Key::FansOff;
     } else if (s_screen == Screen::History) {
         if (b == BtnEvent::Short) return Key::Prev;    // к старым
         if (a == BtnEvent::Short) return TWO_BUTTONS ? Key::Next : Key::Prev;   // к новым (ES: к старым, как раньше)
@@ -1875,6 +1909,7 @@ static Key touchZone(int32_t x, int32_t y)
             case 0:  return Key::Inc;
             case 1:  return Key::Menu;
             case 2:  return Key::History;
+            case 3:  return Key::FansOff;
             default: return Key::Dec;
             }
         }
@@ -1977,6 +2012,11 @@ static void handleKey(Key k)
         case Key::Hide:        if (s_btnShown) showMainButtons(false); break;
         case Key::Menu:        s_btnShown = false; enterMenu(); break;
         case Key::History:     s_btnShown = false; enterHistory(); break;
+        case Key::FansOff:
+            FanControl::setAllOff(!FanControl::allOff());
+            s_shownInfo1[0] = s_shownInfo2[0] = '\0';   // скорости и иконки - перерисовать
+            if (HAS_TOUCH && s_btnShown) drawFansOffButton();
+            break;
         default: break;
         }
         return;

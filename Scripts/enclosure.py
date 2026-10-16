@@ -1,11 +1,11 @@
 # Корпус для датчика CO2: плата с экраном (ES3C28P или LILYGO T-Display-S3) + K22 (снизу) + nRF24L01+ (за экраном).
-# Две крышки: «на стену» (щели над K22) и «на стол». Параметрический (CadQuery): все размеры - в блоках PARAMETERS.
+# Две крышки: «на стену» (щели над K22) и «на стол». Параметрический (CadQuery): все размеры - в блоках PARAMETERS
+# (по группам «# --- … ---», у каждого - описание, единицы и источник; в Readme таблицы параметров нет - только здесь).
 #   python Scripts/enclosure.py                       - собрать корпуса для обеих плат
 #   python Scripts/enclosure.py --board es3c28p       - только ES3C28P  (или --board tdisplay_s3 / tdisplay_s3_s8)
 #   tdisplay_s3_s8 - T-Display-S3 + SenseAir S8 LP: компактный корпус (приоритет - на стену), плата - на ушах
-#   (TDisplayS3_S8_ears_x4.stl, саморезы M3); S8 лежит на дне справа, прижат 2 штырьками крышки; nRF24 - слева от S8.
+#   (TDisplayS3_S8_ears_x4.stl, саморезы 2.5 x 6); S8 лежит на дне справа, прижат 2 штырьками крышки; nRF24 - слева от S8.
 #   T-Display: штырьки кнопок BOOT / IO14 - <ПЛАТА>_buttons_x2.stl (печать наконечником вниз).
-#   --update-project  - после сборки обновить таблицу параметров в Readme.md (подраздел «### 12.7 Параметры»)
 # Результат в Build/enclosure/ (файлы названы по плате):
 #   <ПЛАТА>_body.stl, <ПЛАТА>_lid_wall.stl (щели над K22, на стену), <ПЛАТА>_lid_table.stl (без щелей, на стол),
 #   <ПЛАТА>_assembly.step, <ПЛАТА>_layout.png (чертёж), <ПЛАТА>_preview.png; ПЛАТА = ES3C28P | TDisplayS3.
@@ -21,7 +21,6 @@
 import json
 import math
 import os
-import re
 import subprocess
 import sys
 
@@ -29,7 +28,6 @@ import cadquery as cq
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "Build", "enclosure")
-README_MD = os.path.join(ROOT, "Readme.md")
 
 # варианты: плата + датчик (tdisplay_s3_s8 - T-Display-S3 + SenseAir S8 LP, компактный корпус, крепление ушами)
 BOARDS = {"es3c28p": "ES3C28P", "tdisplay_s3": "TDisplayS3", "tdisplay_s3_s8": "TDisplayS3_S8"}
@@ -748,6 +746,17 @@ def usb_center():
     return YD, Z_PCB + USB_Z_FROM_PCB_FRONT
 
 
+def vent_slot(wp, c, depth):
+    """Щель стенки: профиль в плоскости стенки (по ширине - c ± SLOT_W / 2, по Z - VENT_Z0..VENT_CUT_Z1), выдавлен
+    сквозь стенку на depth. Закрытый верх - острый под 45° (вершина на VENT_Z1) - печать без мостов."""
+    h = SLOT_W / 2
+    if VENT_CUT_Z1 > VENT_Z1:                         # открыта сверху (закрывает крышка)
+        pts = [(c - h, VENT_Z0), (c + h, VENT_Z0), (c + h, VENT_CUT_Z1), (c - h, VENT_CUT_Z1)]
+    else:
+        pts = [(c - h, VENT_Z0), (c + h, VENT_Z0), (c + h, VENT_Z1 - h), (c, VENT_Z1), (c - h, VENT_Z1 - h)]
+    return wp.polyline(pts).close().extrude(depth)
+
+
 def build_body():
     body = rbox(0, H / 2, W, H, 0, ZL, R_OUT)
     body = body.cut(rbox(0, H / 2, INNER_W, H - 2 * WALL, BACK_T, ZL + 1, R_IN))
@@ -784,13 +793,14 @@ def build_body():
     body = body.cut(cyl(0, H - TOPHOLE_FROM_TOP_A, WALLHOLE_D, MEMBRANE, BACK_T + 0.5))
 
     # щели боковых и нижней стенки вдоль Z (вертикальные при печати - без мостов): все одной длины, по центру
-    # собранного корпуса - VENT_Z0..VENT_Z1 (отступ от стены и лица крышки); выше верха стенки - открыты сверху
+    # собранного корпуса - VENT_Z0..VENT_Z1 (отступ от стены и лица крышки); выше верха стенки - открыты сверху.
+    # Закрытый верх - острый (45°, вершина на VENT_Z1): без мостов над щелями
     for ys in side_slot_ys():
         for sx in (-1, 1):
             xa, xb = (W / 2 - WALL - 0.5, W / 2 + 0.5) if sx > 0 else (-W / 2 - 0.5, -W / 2 + WALL + 0.5)
-            body = body.cut(box(xa, xb, ys - SLOT_W / 2, ys + SLOT_W / 2, VENT_Z0, VENT_CUT_Z1))
+            body = body.cut(vent_slot(cq.Workplane("YZ", origin=(xa, 0, 0)), ys, xb - xa))
     for x in bottom_slot_xs():
-        body = body.cut(box(x - SLOT_W / 2, x + SLOT_W / 2, -0.5, WALL + 0.5, VENT_Z0, VENT_CUT_Z1))
+        body = body.cut(vent_slot(cq.Workplane("XZ", origin=(0, WALL + 0.5, 0)), x, WALL + 1))
 
     # разъём питания DC-022B: заужение в нижней стенке изнутри (сверлить)
     body = body.cut(dc_hole())
@@ -1268,61 +1278,13 @@ def preview(body, lid, dm, path):
     print("preview:", path)
 
 
-# ------------------------------------ таблица параметров для Readme.md ------------------------------------
+# ------------------------------------ расчётные размеры (Build/enclosure/<ПЛАТА>_dims.json) ------------------------------------
 DERIVED = [("W", "ширина корпуса, мм"), ("H", "высота корпуса, мм"), ("D", "глубина корпуса, мм"),
            ("INNER_W", "внутренняя ширина"), ("INNER_D", "внутренняя глубина (до крышки)"),
            ("ZL", "расстояние от стены до плоскости крышки"), ("SENS_Y0", "низ зоны датчика K22 / S8 (от низа корпуса)"),
            ("YD", "центр платы экрана (от низа корпуса)"), ("WALLHOLE_Y", "высота заужений под шурупы в стену"),
            ("ES_WIN_L", "окно экрана (ES3C28P): длина"), ("ES_WIN_W", "окно экрана (ES3C28P): высота"),
            ("TD_WIN_L", "окно экрана (T-Display-S3): длина"), ("TD_WIN_W", "окно экрана (T-Display-S3): высота")]
-
-
-def params_markdown():
-    """Таблицы параметров из блока PARAMETERS + расчётные размеры обоих корпусов (из Build/enclosure/*_dims.json)."""
-    src = open(os.path.abspath(__file__), encoding="utf-8").read()
-    start = src.index("# ===================================== PARAMETERS")
-    end = src.index("# ======================================================================================\n\n# --- расчёт")
-    g = globals()
-    out = []
-    pat = re.compile(r"^([A-Z][A-Z0-9_]*(?:, [A-Z][A-Z0-9_]*)*) = .*?(?:#\s*(.*))?$")
-    for line in src[start:end].splitlines():
-        m_sec = re.match(r"^# --- (.+?) ---$", line)
-        if m_sec:
-            out += ["", "**%s**" % m_sec.group(1), "", "| Параметр | Значение | Описание |", "|---|---|---|"]
-            continue
-        m = pat.match(line)
-        if not m:
-            continue
-        names = m.group(1).split(", ")
-        out.append("| `%s` | %s | %s |" % (", ".join(names), ", ".join(str(g[n]) for n in names), (m.group(2) or "").strip()))
-    dims = {}
-    for b, pref in BOARDS.items():
-        pth = os.path.join(OUT, pref + "_dims.json")
-        if os.path.isfile(pth):
-            dims[pref] = json.load(open(pth, encoding="utf-8"))
-    out += ["", "**Расчётные размеры** (не задаются, считаются из параметров), мм", "",
-            "| Величина | " + " | ".join(dims) + " | Что |", "|---|" + "---|" * len(dims) + "---|"]
-    for n, t in DERIVED:
-        out.append("| `%s` | " % n + " | ".join("%.1f" % d[n] if n in d else "-" for d in dims.values()) + " | %s |" % t)
-    return "\n".join(out).lstrip("\n") + "\n"
-
-
-def update_project():
-    """Заменяет содержимое подраздела «### 12.7 Параметры» в Readme.md (до следующего заголовка или конца файла)."""
-    title = "### 12.7 Параметры"
-    text = open(README_MD, encoding="utf-8").read()
-    mt = re.search(r"^" + re.escape(title) + r"[ \t]*$", text, re.M)       # только строка-заголовок, не упоминание в тексте
-    if mt is None:
-        print("Readme.md: заголовок «%s» не найден" % title)
-        return False
-    i, j = mt.start(), mt.end()
-    m = re.search(r"^#{1,3} ", text[j:], re.M)       # следующий заголовок
-    tail = ("\n" + text[j + m.start():]) if m else ""
-    body = ("%s\n\n_Таблица сформирована автоматически: `python Scripts/enclosure.py --update-project` "
-            "(источник - блоки PARAMETERS в Scripts/enclosure.py; правьте там)._\n\n%s" % (title, params_markdown()))
-    open(README_MD, "w", encoding="utf-8", newline="\n").write(text[:i] + body + tail)
-    print("Readme.md: таблица параметров корпуса обновлена")
-    return True
 
 
 # ------------------------------------ основной сценарий ------------------------------------
@@ -1518,13 +1480,8 @@ def main():
         for b in BOARDS:
             r = subprocess.run([sys.executable, os.path.abspath(__file__), "--board", b])
             ok &= r.returncode == 0
-        if "--update-project" in sys.argv:
-            update_project()
         return 0 if ok else 1
-    ok = build_one()
-    if "--update-project" in sys.argv:
-        update_project()
-    return 0 if ok else 1
+    return 0 if build_one() else 1
 
 
 if __name__ == "__main__":

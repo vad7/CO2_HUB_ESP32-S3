@@ -28,7 +28,7 @@ MOCK = {
     "CO2_current": 812, "sntp_status": "NTP", "sys_mactime": BOOT,
     "sys_ver": "2.0.0", "sys_build": "05.10.2026 12:00 (предпросмотр)",
     "sys_author": "Вадим (vad7@yahoo.com)", "sys_board": "ПК", "sys_fw_board": "es3c28p", "sys_fw_id": "es3c28p_k22", "sys_sensor": "S8 LP", "sys_heap": "180000 / 7900000 байт",
-    "now_night": 0, "night": 0, "now_night_ov": 0, "fan_speed_previous": 2, "fsp_time_def": 180,
+    "now_night": 0, "night": 0, "now_night_ov": 0, "fans_off": 0, "fan_speed_previous": 2, "fsp_time_def": 180,
     "history_count": 1440, "cfg_co2_fans": len(FANS), "cfg_co2_fans_speed_th": "500,600,700,800,900,1000",
     "cfg_co2_fans_speed_delta": 50, "cfg_co2_period": 20, "cfg_co2_night_start": "22:00",
     "cfg_co2_night_end": "06:00", "cfg_co2_night_start_wd": "23:00", "cfg_co2_night_end_wd": "08:00",

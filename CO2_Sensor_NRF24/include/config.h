@@ -74,26 +74,27 @@
 #define I2C_PIN_SDA             16
 #define I2C_PIN_SCL             15
 
-// --- nRF24L01+ на SPI3 (HSPI) через GPIO-matrix ---
+// --- nRF24L01+ на SPI3 (HSPI) через GPIO-matrix: весь SPI - на разъёме P3 (питание - P4) ---
 // P3: 1-IO2, 2-IO3, 3-IO14, 4-IO21;  P2: 1-+5V, 2-GND, 3-TXD0(GPIO43), 4-RXD0(GPIO44)
 #define NRF_PIN_SCK             14      // P3.3
 #define NRF_PIN_MOSI            21      // P3.4
 #define NRF_PIN_MISO            3       // P3.2 (strapping JTAG-sel, вход ESP32 - безопасно)
-#define NRF_PIN_CSN             44      // P2.4 RXD0 (Serial идёт через USB-CDC)
+#define NRF_PIN_CSN             2       // P3.1 IO2 (не strapping на ESP32-S3)
 // CE модуля - перемычкой на 3.3 В (не управляется ни на одной плате, см. radio.cpp); GPIO43 - под UART S8
 #define NRF_SPI_BUS             HSPI    // SPI3: SPI2 (FSPI) занят дисплеем
 
-// --- SenseAir S8 LP, UART1 через GPIO-matrix (уровни 3.3 В - напрямую) ---
+// --- SenseAir S8 LP, UART1 через GPIO-matrix (уровни 3.3 В - напрямую): весь датчик - на разъёме P2 ---
 #define S8_PIN_TX               43      // P2.3 TXD0 -> S8 UART_RxD (последовательно 499R+100R на плате)
-#define S8_PIN_RX               2       // P3.1 IO2  <- S8 UART_TxD (свободный IO по руководству платы)
+#define S8_PIN_RX               44      // P2.4 RXD0 <- S8 UART_TxD (100R на плате; Serial идёт через USB-CDC,
+                                        // ROM слушает RXD0 только в режиме прошивки - BOOT при старте)
 
-// --- DS18B20 DQ: свободный IO2 разъёма P3 - только с K22 (с S8 там UART_TxD датчика) ---
+// --- DS18B20 DQ: свободный RXD0 разъёма P2 - только с K22 (с S8 там UART_TxD датчика) ---
 #if CO2_SENSOR == CO2_SENSOR_S8
-// ES3C28P + S8: свободного вывода нет (IO2 и TXD0 - UART S8, остальные IO разъёмов - nRF24 и I2C):
+// ES3C28P + S8: свободного вывода нет (TXD0 и RXD0 - UART S8, остальные IO разъёмов - nRF24 и I2C):
 // DS18B20 в настройках не предлагается; SHT40 - на разъёме P4 (I2C)
 #define TEMP_PIN_DQ             -1
 #else
-#define TEMP_PIN_DQ             2       // P3.1 (IO2); 4.7k к 3V3 (P4.1)
+#define TEMP_PIN_DQ             44      // P2.4 (RXD0, 100R на плате); 4.7k к 3V3 (P4.1)
 #endif
 
 // --- Кнопки: BOOT (KEY2) ---

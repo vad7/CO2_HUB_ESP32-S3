@@ -12,10 +12,11 @@
 <p class="center" data-var="CO2_last_time" data-fmt="time"></p>
 <p class="center temp" hidden>Температура: <b><span data-var="temp_c"></span> °C</b><span id="rh"></span></p>
 <p id="night" class="center"></p>
+<p id="fans_off_note" class="center" style="color:red;font-weight:bold" hidden>Все вентиляторы выключены (скорость 0)</p>
 <table id="fans" class="mdbtab">
 	<tr><th>№</th><th>Место</th><th id="col_speed">Скорость</th><th id="col_time">Отправлена</th><th colspan="3" width="36%">Корректировка на &nbsp;<input title="0 - неограничено" id="fsp_time" size="3" maxlength="5">&nbsp; мин.</th></tr>
 </table>
-<br>
+<p class="center"><button type="button" id="fans_off_btn" class="button"></button></p>
 <form data-api>
 Корректировать: Скорость:&nbsp;<input title="-6..6" name="cfg_vars_fans_speed_ov" maxlength="2" size="3">&nbsp;&nbsp;
 Ночь: <label><input type="radio" name="now_night_ov" value="0">авто</label>
@@ -63,7 +64,18 @@ function buildTable(n) {
 	tbl.hidden = n == 0;
 }
 
+/* Все вентиляторы - скорость 0 / включить (с подтверждением); только в RAM устройства */
+function fansOffToggle() {
+	var off = fansOffNow ? 0 : 1;
+	if (!confirm(off ? 'Выключить все вентиляторы (скорость 0)?' : 'Включить вентиляторы (скорость - по CO2)?')) return;
+	App.send({ fans_off: off }, function () { App.load(false, update); });
+}
+
+var fansOffNow = false;
 function update(v) {
+	fansOffNow = v.fans_off == 1;
+	document.getElementById('fans_off_note').hidden = !fansOffNow;
+	document.getElementById('fans_off_btn').textContent = fansOffNow ? 'Включить вентиляторы' : 'Выключить все вентиляторы';
 	var t = document.querySelectorAll('.temp');
 	for (var k = 0; k < t.length; k++) t[k].hidden = v.temp_en != 1;
 	document.getElementById('rh').innerHTML = v.temp_rh !== '' ? ', влажность <b>' + v.temp_rh + ' %</b>' : '';
@@ -100,6 +112,7 @@ App.start(function (v) {
 	update(v);
 	if (started) return;
 	started = true;
+	document.getElementById('fans_off_btn').onclick = fansOffToggle;
 	var fsp = document.getElementById('fsp_time'), saved = App.getCookie(FSP_COOKIE);
 	fsp.value = saved != null ? saved : v.fsp_time_def;
 	fsp.onchange = function () { App.setCookie(FSP_COOKIE, fsp.value); };
