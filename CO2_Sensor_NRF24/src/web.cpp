@@ -5,6 +5,7 @@
 //   POST /api/set         - запись переменных, тело application/x-www-form-urlencoded (UTF-8, %XX);
 //   GET  /api/set?a=b&... - то же из строки запроса (для ручной проверки и скриптов);
 //   GET  /history.csv     - история CO2;
+//   GET  /errlog.txt      - журнал ошибок (errlog.h) расшифрованным текстом, новые записи первыми;
 //   POST /api/ota         - обновление прошивки: тело - firmware.bin (application/octet-stream), затем перезапуск.
 // Пароль настроек (net.webPass, HTTP Basic, имя - любое; пустой - не запрашивается): страницы настроек
 // (AUTH_PAGES), /api/ota и /api/set - кроме оперативного управления с главной (OPEN_VARS: поправка скорости,
@@ -33,6 +34,8 @@
 #include "utf8.h"
 #include "temp_sensor.h"
 #include "sys_info.h"
+#include "radio.h"
+#include "errlog.h"
 #include "web_files.h"
 
 namespace Web {
@@ -51,6 +54,7 @@ constexpr int16_t  TENTHS_PER_DEG  = 10;     // температура в 0.1 °
 constexpr uint32_t US_PER_MS       = 1000;   // время задач FreeRTOS: мкс -> мс
 constexpr const char* INDEX_FILE   = "index.htm";
 constexpr const char* HISTORY_CSV  = "history.csv";
+constexpr const char* ERRLOG_TXT   = "errlog.txt";
 constexpr const char* API_VARS     = "api/vars";
 constexpr const char* API_SET      = "api/set";
 constexpr const char* API_OTA      = "api/ota";
@@ -70,10 +74,9 @@ constexpr const char* MIME_JSON    = "application/json; charset=utf-8";
 constexpr const char* CACHE_STATIC = "max-age=86400";
 constexpr const char* CACHE_NONE   = "no-cache";
 
-static httpd_handle_t s_server = nullptr;
+static httpd_handle_t s_server = nullptr;           // HTTP-сервер (nullptr - не запущен)
 static char s_body[WEB_POST_MAX + 1];      // тело POST / строка запроса (одна задача сервера)
 static char s_json[WEB_JSON_MAX];          // группа ответа /api/vars (собирается под замком, отправляется без него)
-static char s_radioReport[REPORT_LEN] = "";
 
 // Контекст запроса: выбранный вентилятор и что сделать после разбора переменных
 struct ReqCtx {
@@ -295,6 +298,7 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "cfg_co2_passive_ch"))       co2.passiveChannel = (uint8_t)clampL(v, 0, RF_CHANNEL_MAX);
     else if (!strcmp(name, "cfg_co2_radio_reset"))      co2.radioResetS = (uint16_t)clampL(v, 0, UINT16_MAX);
     else if (!strcmp(name, "cfg_co2_poll"))             co2.co2PollS = (uint8_t)clampL(v, CO2_POLL_MIN_S, CO2_POLL_MAX_S);
+    else if (!strcmp(name, "cfg_i2c_khz"))              co2.i2cKhz = (uint16_t)clampL(v, I2C_KHZ_MIN, I2C_KHZ_MAX);   // действует сразу
     else if (!strcmp(name, "cfg_temp_period"))          co2.tempPeriodS = (uint8_t)clampL(v, TEMP_PERIOD_MIN_S, TEMP_PERIOD_MAX_S);
     else if (!strcmp(name, "cfg_temp_sensor"))          co2.tempSensor  = (uint8_t)clampL(v, 0, TEMP_SENSOR_COUNT - 1);   // DS18B20 без вывода - sanitize() -> нет
     else if (!strcmp(name, "cfg_co2_save"))             c.saveCo2  = v == 1;
@@ -340,6 +344,7 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "co2_abc_period"))           { c.abcHasPeriod = true; c.abcPeriod = v; }
     else if (!strcmp(name, "co2_abc_on"))               { c.abcHasOn = true; c.abcOn = v != 0; }
     else if (!strcmp(name, "co2_abc_write"))            { c.abcWrite = v == 1; }
+    else if (!strcmp(name, "temp_res"))                 TempSensor::requestResolution((uint8_t)clampL(v, 0, UINT8_MAX));   // DS18B20: в датчик
     else if (!strcmp(name, "sys_touch_recal"))          { if (v == 1) { Cfg::clearTouchCal(); c.restart = true; } }
     else if (!strcmp(name, "sys_time_set"))             Net::setTimeManual((time_t)v);   // UTC, с (от браузера)
     else return false;
@@ -495,6 +500,8 @@ static void varsCfg(Json& j, const ReqCtx&)
     j.unum("cfg_temp_sensor",          co2.tempSensor);
     j.unum("cfg_temp_period",          co2.tempPeriodS);
     j.unum("cfg_co2_poll",             co2.co2PollS);
+    j.unum("cfg_i2c_khz",              co2.i2cKhz);
+    j.unum("i2c_khz_max",              I2C_KHZ_MAX);   // с K22 - 100
 }
 
 // История: буферы (фактически выделено, записей, лимит памяти), срок, период
@@ -553,7 +560,12 @@ static void varsStatus(Json& j, const ReqCtx&)
     j.str ("co2_status",  tmp);
     TempSensor::statusText(tmp, sizeof(tmp));
     j.str ("temp_status", tmp);
-    j.str ("radio_regs",  s_radioReport);
+    TempSensor::serialText(tmp, sizeof(tmp));
+    j.str ("temp_serial", tmp);
+    j.unum("temp_res",    TempSensor::resolutionBits());   // DS18B20, бит; 0 - не DS18B20 / ещё не читали
+    char regs[REPORT_LEN];
+    Radio::verifyRegisters(regs, sizeof(regs));            // сверка - при запросе (под CfgLock, как и loop)
+    j.str ("radio_regs",  regs);
 }
 
 // ABC датчика CO2: abc_state - 0 не читали, 1 идёт обмен, 2 готово, 3 ошибка (Co2Sensor::AbcState)
@@ -678,6 +690,23 @@ static void sendHistory(httpd_req_t* req)
         }
         o.printf("%04d-%02d-%02d %02d:%02d:%02d%c%u%c%s\r\n", 1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday,
                  tm.tm_hour, tm.tm_min, tm.tm_sec, delim, rec.co2, delim, temp);
+    }
+    o.end();
+}
+
+// errlog.txt: журнал ошибок, новые первыми, по строке на запись (ErrLog::format); пусто - «Ошибок нет»
+static void sendErrLog(httpd_req_t* req)
+{
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", CACHE_NONE);
+    Out o(req);
+    char line[ERRLOG_LINE_LEN * 2];
+    for (uint16_t i = 0;; i++) {
+        bool ok;
+        { CfgLock l; ErrEntry e; ok = ErrLog::get(i, e); if (ok) ErrLog::format(e, line, sizeof(line)); }
+        if (!ok) { if (i == 0) o.printf("Ошибок нет\r\n"); break; }
+        o.write(line, strlen(line));                       // длиннее строки printf (LINE_MAX_LEN)
+        o.write("\r\n", 2);
     }
     o.end();
 }
@@ -894,6 +923,7 @@ static esp_err_t handler(httpd_req_t* req)
     if (req->method == HTTP_POST) return httpd_resp_send_err(req, HTTPD_405_METHOD_NOT_ALLOWED, "POST: /api/set");
     if (!strcmp(path, API_VARS)) return apiVars(req);
     if (!strcmp(path, HISTORY_CSV)) { sendHistory(req); return ESP_OK; }
+    if (!strcmp(path, ERRLOG_TXT))  { sendErrLog(req); return ESP_OK; }
 
     const WebFile* f = findFile(path);
     if (!f) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");
@@ -917,11 +947,6 @@ void begin()
     static const httpd_uri_t postUri = { "/*", HTTP_POST, handler, nullptr };
     httpd_register_uri_handler(s_server, &getUri);
     httpd_register_uri_handler(s_server, &postUri);
-}
-
-void setRadioReport(const char* report)
-{
-    strlcpy(s_radioReport, report, sizeof(s_radioReport));
 }
 
 } // namespace Web

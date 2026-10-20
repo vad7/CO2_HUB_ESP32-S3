@@ -22,6 +22,7 @@
 #include <SPI.h>
 #include <RF24.h>
 #include <stdio.h>
+#include "errlog.h"
 
 // Доступ к защищённому read_register() - для сверки регистров и проверки адреса
 class RF24Ext : public RF24 {
@@ -31,15 +32,17 @@ public:
     void    readRegs(uint8_t reg, uint8_t* buf, uint8_t n) { read_register(reg, buf, n); }
 };
 
-static SPIClass s_spi(NRF_SPI_BUS);
+static SPIClass s_spi(NRF_SPI_BUS);                 // шина SPI модуля
 static RF24Ext  s_radio(NRF_PIN_CSN, NRF_PIN_CSN, RADIO_SPI_HZ);   // CE == CSN: RF24 не управляет CE
-static bool     s_chipOk         = false;
-static bool     s_passive        = false;
-static bool     s_busy           = false;
+static bool     s_chipOk         = false;           // модуль найден при запуске
+static bool     s_passive        = false;           // включён пассивный режим
+static bool     s_busy           = false;           // активный режим: идёт передача
 static uint8_t  s_channel        = 0;       // канал активного режима (последний вентилятор)
-static uint8_t  s_passiveChannel = 0;
+static uint8_t  s_passiveChannel = 0;               // канал пассивного режима
 static uint8_t  s_pipes          = 0;       // открытых каналов приёма (пассивный)
-static uint32_t s_txStart        = 0;
+static uint32_t s_txStart        = 0;               // начало передачи (millis) - для тайм-аута
+
+constexpr uint8_t BITS_PER_BYTE = 8;
 
 // Эталонные значения регистров
 constexpr uint8_t REG_CONFIG_TX    = 0x7E;
@@ -106,7 +109,13 @@ bool begin(uint8_t channel)
     pinMode(NRF_PIN_CSN, OUTPUT);       // в режиме CE == CSN RF24::begin() не настраивает выводы
     digitalWrite(NRF_PIN_CSN, HIGH);
     s_chipOk = s_radio.begin(&s_spi);   // внутри: задержка 5 мс, сброс FIFO, PWR_UP
-    if (!s_chipOk) return false;
+    if (!s_chipOk) {                    // в журнал: что модуль вернул по SPI (все 0x00 / 0xFF - не отвечает)
+        static const uint8_t DIAG_REGS[] = { nRF24L01::CONFIG, nRF24L01::SETUP_AW, nRF24L01::RF_SETUP, nRF24L01::STATUS };
+        ErrLog::add(ErrDev::Radio, (uint8_t)RadioErr::NotFound);
+        for (uint8_t reg : DIAG_REGS)
+            ErrLog::add(ErrDev::Radio, (uint8_t)RadioErr::Reg, (uint16_t)((reg << BITS_PER_BYTE) | s_radio.readReg(reg)));
+        return false;
+    }
     s_channel = channel;
     setActive();
     return true;
@@ -175,7 +184,7 @@ bool receive(uint8_t& pipe, uint8_t* buf, uint8_t maxLen, uint8_t& len)
     return true;
 }
 
-bool verifyRegisters(char* buf, size_t len)
+bool verifyRegisters(char* buf, size_t len, bool log)
 {
     struct Check { const char* name; uint8_t reg; uint8_t expect; uint8_t mask; };
     const uint8_t rxPipes = (uint8_t)((1u << s_pipes) - 1);
@@ -204,14 +213,15 @@ bool verifyRegisters(char* buf, size_t len)
     const Check* checks = s_passive ? passive : active;
     const size_t n = s_passive ? sizeof(passive) / sizeof(passive[0]) : sizeof(active) / sizeof(active[0]);
     bool ok = s_chipOk;
-    size_t pos = snprintf(buf, len, "nRF24 %s%s:", s_chipOk ? "OK" : "НЕ НАЙДЕН", s_passive ? " (пассивный)" : "");
+    size_t pos = buf ? (size_t)snprintf(buf, len, "nRF24 %s%s:", s_chipOk ? "OK" : "НЕ НАЙДЕН", s_passive ? " (пассивный)" : "") : 0;
     if (!s_chipOk) return false;
     for (size_t i = 0; i < n; i++) {
         const Check& c = checks[i];
         uint8_t v = s_radio.readReg(c.reg);
         bool match = (v & c.mask) == (c.expect & c.mask);
         ok &= match;
-        if (pos < len) pos += snprintf(buf + pos, len - pos, " %s=%02X%s", c.name, v, match ? "" : "(!)");
+        if (buf && pos < len) pos += (size_t)snprintf(buf + pos, len - pos, " %s=%02X%s", c.name, v, match ? "" : "(!)");
+        if (log && !match) ErrLog::add(ErrDev::Radio, (uint8_t)RadioErr::RegMismatch, (uint16_t)((c.reg << BITS_PER_BYTE) | v));
     }
     return ok;
 }

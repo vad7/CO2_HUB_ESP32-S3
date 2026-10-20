@@ -16,17 +16,14 @@ namespace History {
 constexpr uint32_t REC_BYTES_BOTH = HISTORY_CO2_REC_BYTES + HISTORY_TEMP_REC_BYTES;
 static_assert(sizeof(HistoryRecord) == HISTORY_CO2_REC_BYTES, "размер записи CO2");
 
-static HistoryRecord* s_buf     = nullptr;
-static int16_t*       s_temp    = nullptr;
-static uint32_t       s_cap     = 0;
-static uint32_t       s_wanted  = 0;
+static HistoryRecord* s_buf     = nullptr;          // буфер CO2 (PSRAM / RAM), кольцевой
+static int16_t*       s_temp    = nullptr;          // буфер температуры (тот же индекс), nullptr - нет
+static uint32_t       s_cap     = 0;                // вмещает записей
+static uint32_t       s_wanted  = 0;                // заказано записей (сутки x период)
 static uint32_t       s_head    = 0;   // индекс следующей записи
-static uint32_t       s_count   = 0;
+static uint32_t       s_count   = 0;                // записей сейчас (не больше s_cap)
 static uint32_t       s_tempCnt = 0;   // записей с температурой
-static bool           s_psram   = false;
-static int16_t        s_tmin    = 0;
-static int16_t        s_tmax    = 0;
-static bool           s_rangeDirty = true;   // мин / макс нужно пересчитать по всему буферу
+static bool           s_psram   = false;            // буферы в PSRAM
 
 static bool havePsram() { return ESP.getPsramSize() > 0; }
 
@@ -56,7 +53,6 @@ static void fillNoTemp()
 void clear()
 {
     s_head = s_count = s_tempCnt = 0;
-    s_rangeDirty = true;
     if (s_temp) fillNoTemp();
 }
 
@@ -73,7 +69,6 @@ bool configure(uint16_t days, uint16_t periodS, bool withTemp)
     if (n >= HISTORY_RECORDS_MIN) s_buf = (HistoryRecord*)heap_caps_malloc((size_t)n * HISTORY_CO2_REC_BYTES, caps());
     s_cap = s_buf ? n : 0;
     s_head = s_count = s_tempCnt = 0;
-    s_rangeDirty = true;
     if (withTemp) setTemp(true);
     Serial.printf("История: %lu сут при %u с -> нужно %lu записей, выделено %lu (%s), CO2 %lu б, температура %lu б\n",
                   (unsigned long)days, periodS, (unsigned long)s_wanted, (unsigned long)s_cap, s_psram ? "PSRAM" : "RAM",
@@ -88,14 +83,12 @@ void setTemp(bool on)
         heap_caps_free(s_temp);
         s_temp = nullptr;
         s_tempCnt = 0;
-        s_rangeDirty = true;
         return;
     }
     s_temp = (int16_t*)heap_caps_malloc((size_t)s_cap * HISTORY_TEMP_REC_BYTES, caps());
     if (!s_temp) { Serial.println("История: нет памяти под буфер температуры"); return; }
     fillNoTemp();                               // старые записи CO2 - без температуры
     s_tempCnt = 0;
-    s_rangeDirty = true;
 }
 
 void add(uint16_t co2, int16_t tempTenths, uint32_t uptimeS)
@@ -103,19 +96,9 @@ void add(uint16_t co2, int16_t tempTenths, uint32_t uptimeS)
     if (s_buf == nullptr) return;
     if (s_temp) {
         const int16_t old = s_temp[s_head];     // затираемая запись (при неполном буфере - «нет данных»)
-        if (old != HISTORY_NO_TEMP) {
-            s_tempCnt--;
-            if (old == s_tmin || old == s_tmax) s_rangeDirty = true;
-        }
+        if (old != HISTORY_NO_TEMP) s_tempCnt--;
         s_temp[s_head] = tempTenths;
-        if (tempTenths != HISTORY_NO_TEMP) {
-            if (s_tempCnt == 0) { s_tmin = s_tmax = tempTenths; s_rangeDirty = false; }
-            else if (!s_rangeDirty) {
-                if (tempTenths < s_tmin) s_tmin = tempTenths;
-                if (tempTenths > s_tmax) s_tmax = tempTenths;
-            }
-            s_tempCnt++;
-        }
+        if (tempTenths != HISTORY_NO_TEMP) s_tempCnt++;
     }
     s_buf[s_head].uptimeS = uptimeS;
     s_buf[s_head].co2     = co2;
@@ -150,25 +133,6 @@ int16_t getTemp(uint32_t i)
 {
     if (s_temp == nullptr || i >= s_count) return HISTORY_NO_TEMP;
     return s_temp[slot(i)];
-}
-
-bool tempRange(int16_t& lo, int16_t& hi)
-{
-    if (s_temp == nullptr || s_tempCnt == 0) return false;
-    if (s_rangeDirty) {                         // пересчёт по всему буферу
-        bool first = true;
-        for (uint32_t i = 0; i < s_count; i++) {
-            const int16_t t = s_temp[slot(i)];
-            if (t == HISTORY_NO_TEMP) continue;
-            if (first || t < s_tmin) s_tmin = t;
-            if (first || t > s_tmax) s_tmax = t;
-            first = false;
-        }
-        s_rangeDirty = false;
-    }
-    lo = s_tmin;
-    hi = s_tmax;
-    return true;
 }
 
 } // namespace History

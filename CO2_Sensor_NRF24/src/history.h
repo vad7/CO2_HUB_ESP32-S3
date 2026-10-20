@@ -59,5 +59,4 @@ namespace History {
     // i = 0 - самая новая запись; false, если i >= count()
     bool     get(uint32_t i, HistoryRecord& rec);
     int16_t  getTemp(uint32_t i);               // HISTORY_NO_TEMP, если нет
-    bool     tempRange(int16_t& lo, int16_t& hi);   // мин / макс температуры во всём буфере; false - данных нет
 }

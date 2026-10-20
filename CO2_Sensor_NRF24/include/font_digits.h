@@ -21,6 +21,7 @@ struct SmoothFont {
 constexpr uint8_t SMOOTH_DIGITS_ALPHA_MAX   = 15;   // непрозрачный пиксель
 constexpr uint8_t SMOOTH_DIGITS_SMALL_CHARS = 4;    // любые столько знаков мелким размером влезают в 312 px
 static const char SMOOTH_DIGITS_CHARS[] = "-0123456789";   // порядок глифов
+constexpr uint8_t SMOOTH_DIGITS_BIG_H     = 95;   // высота строки BIG, px (полоса цифр на экране)
 
 // BIG: 134 pt, строка 95 px, самые широкие 3 знака - 268 px, 4 знака - 359 px
 static const SmoothGlyph SMOOTH_DIGITS_BIG_GLYPHS[] = {

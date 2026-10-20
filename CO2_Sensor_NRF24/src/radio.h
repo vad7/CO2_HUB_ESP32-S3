@@ -30,8 +30,9 @@ namespace Radio {
     bool     begin(uint8_t channel);          // активный режим; false - модуль не найден
     bool     isChipOk();
     bool     isPassive();
-    // Сверка регистров с эталоном текущего режима; отчёт пишется в buf
-    bool     verifyRegisters(char* buf, size_t len);
+    // Сверка регистров с эталоном текущего режима; отчёт - в buf (nullptr - без отчёта), log - несовпавшие в журнал
+    // ошибок. Модуль не найден - в журнал при запуске (begin): «не найден» и что он вернул по SPI.
+    bool     verifyRegisters(char* buf, size_t len, bool log = false);
 
     // --- активный режим ---
     void     setActive();

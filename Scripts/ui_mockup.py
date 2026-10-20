@@ -61,6 +61,8 @@ WHITE, GREEN, YELLOW, CYAN, GREY, NAVY = (255, 255, 255), (0, 255, 0), (255, 255
 HEADER_H, INFO_LINE_H, MARGIN = 26, 22, 4
 FAN_R, FAN_STEP = 8, 18                 # иконка вентилятора 16 px, шаг 18 (ui.cpp FAN_ICON_STEP)
 DIGIT_W, DIGIT_H, SEG_T = 58, 96, 9      # 7-сегментные цифры (Font7 48 px x2)
+DIGIT_H_ES_SMOOTH = 110                  # сглаженные цифры ES3C28P (font_digits_es.h), T-Display - DIGIT_H
+TOP_INSET_ES = 4                         # ES: шапка и «Выход» ниже края (ui.cpp TOP_INSET)
 DIGITS_FONT = digits_font(ARGS.digits_ttf, DIGIT_H)   # --digits-ttf: большие цифры TTF-шрифтом
 # сглаженный шрифт цифр прошивки (по умолчанию, include/font_digits.h - из этого TTF)
 SMOOTH_TTF = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "work", "fonts",
@@ -102,6 +104,13 @@ def fan_icon(d, cx, cy, color, r=None):
 
 
 RED = (255, 0, 0)
+
+
+def wifi_icon(d, cx, by, color):
+    """Значок Wi-Fi (ui.cpp drawWifiIcon): точка r=1 (cx, by) и 3 дуги над ней, радиусы 5, 9, 13 px, толщина 2."""
+    for r in (5, 9, 13):
+        d.arc((cx - r, by - r, cx + r, by + r), 225, 315, fill=color, width=2)
+    d.ellipse((cx - 1, by - 1, cx + 1, by + 1), fill=color)
 
 
 def fan_off_icon(d, cx, cy, color, r=None):
@@ -156,16 +165,20 @@ def main_screen(w, h, title, temp, hum, es_buttons=False, td_adjust=False, ttf=N
     температура x2) - видна всегда; ES - ряд кнопок над нижней строкой; TD - метки «+» / «-» режима скорости."""
     im = Image.new("RGB", (w, h), (0, 0, 0))
     d = ImageDraw.Draw(im)
-    d.text((MARGIN, HEADER_H // 2), "12:34  связь 3/3  Wi-Fi", font=F_TEXT, fill=GREEN, anchor="lm")
     touch = h > 200
+    top_in = TOP_INSET_ES if touch else 0
+    hy = top_in + HEADER_H // 2
+    d.text((MARGIN, hy), "12:34", font=font(hum_size(2)), fill=GREEN, anchor="lm")   # часы - шрифтом влажности; всё в порядке - без неполадок
+    if not es_buttons:                               # при панели ES значок под «Выход» не рисуется
+        wifi_icon(d, w - MARGIN - 13, hy + 5, (123, 125, 123))   # подключено - тёмно-серый (ui.cpp COL_DIM)
     info_y = h - BOTTOM_LINE_H
-    btn_y = info_y - (BTN_ROW_H if touch else 0)
+    btn_y = info_y + 8 - (BTN_ROW_H if touch else 0)  # ES: ряд кнопок низом до верха цифр нижней строки (BOTTOM_DIGITS_DY)
     if es_buttons:                                   # строка статусов вентиляторов - только ES
-        d.text((MARGIN, HEADER_H + 11), "1:3 2:4* 3:nRF?", font=F_SMALL, fill=WHITE, anchor="lm")
+        d.text((MARGIN, top_in + HEADER_H + 11), "1:3 2:4* 3:nRF?", font=F_SMALL, fill=WHITE, anchor="lm")
     co2 = ARGS.co2
-    cy = (HEADER_H + 22 + btn_y) // 2 if touch else (HEADER_H + info_y) // 2
+    cy = (top_in + HEADER_H + info_y) // 2           # по центру между шапкой и нижней строкой (панель - поверх)
     path = ttf or ARGS.digits_ttf                    # ttf - шрифт этой картинки, иначе --digits-ttf
-    dfont = digits_font(ttf, DIGIT_H) if ttf else DIGITS_FONT
+    dfont = digits_font(ttf, DIGIT_H_ES_SMOOTH if touch else DIGIT_H) if ttf else DIGITS_FONT
     if dfont:                                        # TTF: высота цифр - DIGIT_H, центр самих цифр - (w/2, cy)
         f = dfont
         bx0, by0, bx1, by1 = d.textbbox((0, 0), co2, font=f)
@@ -184,9 +197,9 @@ def main_screen(w, h, title, temp, hum, es_buttons=False, td_adjust=False, ttf=N
             d.rounded_rectangle((i * bw + 2, btn_y + 2, i * bw + bw - 2, btn_y + BTN_ROW_H - 2), 6, fill=NAVY)
             d.text((i * bw + bw // 2, btn_y + BTN_ROW_H // 2), t, font=F_TEXT, fill=WHITE, anchor="mm")
         fan_off_icon(d, 3 * bw + bw // 2, btn_y + BTN_ROW_H // 2, WHITE, 13)   # «вентиляторы выкл.»
-        top = HEADER_H + MARGIN * 2
-        d.rounded_rectangle((w - 90 + 2, 2, w - 2, top - 2), 6, fill=NAVY)
-        d.text((w - 45, top // 2), "Выход", font=F_TEXT, fill=WHITE, anchor="mm")
+        ex_b = cy - DIGIT_H_ES_SMOOTH // 2                # «Выход» высотой с нижние - низом до верха больших цифр (mainExitY)
+        d.rounded_rectangle((w - 90 + 2, ex_b - BTN_ROW_H + 2, w - 2, ex_b - 2), 6, fill=NAVY)
+        d.text((w - 45, ex_b - BTN_ROW_H // 2), "Выход", font=F_TEXT, fill=WHITE, anchor="mm")
     if td_adjust:
         for t, y in (("+", HEADER_H + 22 + 4), ("-", info_y - 28 - 4)):
             d.rounded_rectangle((2, y + 2, 20, y + 26), 6, fill=NAVY)
@@ -216,11 +229,12 @@ def board_name(h):
 def menu_frame(d, w, h, head, btn, hint):
     """Рамка карточки меню: заголовок; ES - кнопка btn в шапке справа и ряд «< - + >» внизу; TD - подсказка внизу.
     Возвращает (top, bottom) области карточки."""
-    top = HEADER_H + MARGIN * 2
-    d.text((MARGIN, top // 2), head, font=F_SMALL, fill=CYAN, anchor="lm")
+    top_in = TOP_INSET_ES if h > 200 else 0
+    top = top_in + BTN_ROW_H if h > 200 else HEADER_H + MARGIN * 2   # ES: шапка карточки - до низа «Назад» (ui.cpp menuHdrH)
+    d.text((MARGIN, (top_in + top) // 2), head, font=F_SMALL, fill=CYAN, anchor="lm")
     if h > 200:
-        d.rounded_rectangle((w - 90 + 2, 2, w - 2, top - 2), 6, fill=NAVY)
-        d.text((w - 45, top // 2), btn, font=F_TEXT, fill=WHITE, anchor="mm")
+        d.rounded_rectangle((w - 90 + 2, top_in + 2, w - 2, top - 2), 6, fill=NAVY)
+        d.text((w - 45, (top_in + top) // 2), btn, font=F_TEXT, fill=WHITE, anchor="mm")
         bottom = h - 48
         for i, t in enumerate(("<", "-", "+", ">")):
             d.rounded_rectangle((i * 80 + 2, bottom + 2, i * 80 + 78, h - 2), 6, fill=NAVY)
@@ -344,12 +358,13 @@ def tasks_card(w, h, title, page):
     im = Image.new("RGB", (w, h), (0, 0, 0))
     d = ImageDraw.Draw(im)
     touch = h == 240
-    top = HEADER_H + MARGIN * 2
+    top = TOP_INSET_ES + BTN_ROW_H if touch else HEADER_H + MARGIN * 2
     bottom = h - (48 if touch else 20)
     per = (bottom - top) // TASK_LINE_H - 1
     rows = task_list()
     pages = (len(rows) + per - 1) // per
-    d.text((MARGIN, top // 2), "Система 2/8", font=F_SMALL, fill=CYAN, anchor="lm")
+    d.text((MARGIN, (TOP_INSET_ES if touch else 0) + (top - (TOP_INSET_ES if touch else 0)) // 2), "Система 2/8",
+           font=F_SMALL, fill=CYAN, anchor="lm")
 
     def cell(s, col, right, cy, color):
         d.text((MARGIN + col * CHAR_W, cy), s, font=F_SMALL, fill=color, anchor="rm" if right else "lm")
@@ -380,6 +395,64 @@ def tasks_card(w, h, title, page):
     return im, title
 
 
+# Журнал ошибок - пример (как ErrLog::timeRange + describe): время первого / последнего раза, повторы, что случилось
+MOCK_ERRLOG = [
+    ("20.10 09:15:02", "10:23:31", 210, "CO2 S8: нет ответа"),
+    ("20.10 08:02:40", None, 1, "DS18B20: нет ответа датчика"),
+    ("19.10 23:58:03", "20.10 07:12:45", 120, "Вентилятор 3 (Ванная): нет подтверждения (ACK)"),
+    ("20.10 07:41:17", "07:41:59", 3, "CO2 S8: ошибка датчика 0x20: вне диапазона"),
+    ("+0:00:01", None, 1, "nRF24: CONFIG = 0x00"),
+    ("+0:00:01", None, 1, "nRF24: модуль не найден (нет ответа по SPI)"),
+]
+
+
+def errlog_card(w, h, title, page, shift=0):
+    """Карточка «Журнал ошибок» (ui.cpp drawErrLog): «Зап.: N  стр/стр» - в шапке (ES - под названием, TD - справа),
+    запись - 2 строки 9x15: время (жёлтым), что случилось (белым). Длинная строка сдвигается влево на shift px,
+    но не дальше своего конца (ES - свайпом, TD - бегущей строкой). ES: без нижнего ряда, «<» «>» - в шапке."""
+    im = Image.new("RGB", (w, h), (0, 0, 0))
+    d = ImageDraw.Draw(im)
+    touch = h == 240
+    top_in = TOP_INSET_ES if touch else 0
+    top = top_in + BTN_ROW_H if touch else HEADER_H + MARGIN * 2
+    bottom = h if touch else h - 20
+    rows = (bottom - top) // TASK_LINE_H
+    per = max(1, rows // 2)
+    pages = (len(MOCK_ERRLOG) + per - 1) // per
+    cnt, pg = "Зап.: %d  " % len(MOCK_ERRLOG), "%d/%d" % (page + 1, pages)
+    if touch:
+        nav_w, nav_h = 36, BTN_ROW_H // 2                  # ui.cpp LOG_NAV_W, LOG_HDR_LINE_H
+        d.rounded_rectangle((w - 90 + 2, top_in + 2, w - 2, top - 2), 6, fill=NAVY)
+        d.text((w - 45, (top_in + top) // 2), "Назад", font=F_TEXT, fill=WHITE, anchor="mm")
+        for i, s in enumerate(("<", ">")):
+            x0 = w - 90 - nav_w * (2 - i)
+            d.rounded_rectangle((x0 + 2, top_in + 2, x0 + nav_w - 2, top - 2), 6, fill=NAVY)
+            d.text((x0 + nav_w // 2, (top_in + top) // 2), s, font=F_TEXT, fill=WHITE, anchor="mm")
+        d.text((MARGIN, top_in + nav_h // 2), "Система 2/9", font=F_SMALL, fill=CYAN, anchor="lm")
+        cy, x = top_in + nav_h + (BTN_ROW_H - nav_h) // 2, MARGIN
+    else:
+        d.text((MARGIN, top // 2), "Система 2/9", font=F_SMALL, fill=CYAN, anchor="lm")
+        cy = top // 2
+        x = w - MARGIN - d.textlength(pg, font=F_SMALL) - d.textlength(cnt, font=F_SMALL)
+    d.text((x, cy), cnt, font=F_SMALL, fill=GREY, anchor="lm")
+    d.text((x + d.textlength(cnt, font=F_SMALL), cy), pg, font=F_SMALL, fill=CYAN, anchor="lm")
+    avail = w - 2 * MARGIN
+    for r, (t1, t2, n, what) in enumerate(MOCK_ERRLOG[page * per:(page + 1) * per]):
+        y = top + r * 2 * TASK_LINE_H
+        tl = t1 + (" - %s x%d" % (t2, n) if n > 1 else "")
+        for k, (text, col) in enumerate(((tl, YELLOW), (what, WHITE))):
+            line = Image.new("RGB", (w, TASK_LINE_H), (0, 0, 0))
+            ld = ImageDraw.Draw(line)
+            sh = min(shift, max(0, int(ld.textlength(text, font=F_SMALL)) - avail))
+            ld.text((MARGIN - sh, TASK_LINE_H // 2), text, font=F_SMALL, fill=col, anchor="lm")
+            ld.rectangle((0, 0, MARGIN - 1, TASK_LINE_H), fill=(0, 0, 0))            # поля (clip)
+            ld.rectangle((w - MARGIN, 0, w, TASK_LINE_H), fill=(0, 0, 0))
+            im.paste(line, (0, y + k * TASK_LINE_H))
+    if not touch:
+        d.text((MARGIN, bottom + 10), "Кн.2:стр.- Кн.1:стр.+ ДН Кн.2:назад", font=F_SMALL, fill=GREEN, anchor="lm")
+    return im, title
+
+
 def main():
     # строки листа: слева - ES3C28P, справа - T-Display (None - картинки для этой платы нет, ячейка пустая).
     # Порядок: главные экраны (7-сегментный, сглаженный шрифт), график истории, меню, «Система», задачи FreeRTOS.
@@ -404,6 +477,9 @@ def main():
              (sys_card(320, 240, sys_n, "Система - обычный случай"), sys_card(320, 170, sys_n, "Система - обычный случай")),
              (sys_card(320, 240, sys_w, "Система - худший случай по длине"),
               sys_card(320, 170, sys_w, "Система - худший случай по длине")),
+             (errlog_card(320, 240, "ES3C28P: Журнал ошибок (свайп вверх / вниз - страницы)", 0),
+              errlog_card(320, 240, "ES3C28P: Журнал, свайп влево - длинные строки сдвинуты", 0, 90)),
+             (errlog_card(320, 170, "T-Display: Журнал ошибок (КН - страницы, длинные - бегущей строкой)", 0),),
              (tasks_card(320, 240, "ES3C28P: Система -> Задачи FreeRTOS («-» / «+» - страницы)", 0),
               tasks_card(320, 170, "T-Display: Задачи FreeRTOS (ДН Кн.1 - войти, КН - страницы)", 0)),
              (tasks_card(320, 240, "ES3C28P: Задачи, стр. 2", 1),
@@ -427,6 +503,11 @@ def main():
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     sheet.save(OUT)
     print(OUT)
+    # отдельные картинки для начала Readme: главный экран ES (первая на листе) и график истории ES
+    for name, shot in (("ui_main_es.png", rows[0][0]), ("ui_history_es.png", history_chart(320, 240))):
+        p = os.path.join(os.path.dirname(OUT), name)
+        shot[0].resize((shot[0].width * SCALE, shot[0].height * SCALE), Image.NEAREST).save(p)
+        print(p)
 
 
 if __name__ == "__main__":

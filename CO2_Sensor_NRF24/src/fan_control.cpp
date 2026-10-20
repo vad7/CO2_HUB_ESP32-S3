@@ -17,6 +17,7 @@
 #include "history.h"
 #include "temp_sensor.h"
 #include "net.h"
+#include "errlog.h"
 
 namespace FanControl {
 
@@ -27,22 +28,23 @@ constexpr int      WDAY_SUNDAY   = 0;
 constexpr int      WDAY_SATURDAY = 6;
 constexpr uint32_t MS_PER_S      = 1000;
 constexpr uint32_t S_PER_MIN     = 60;
+constexpr uint8_t  BITS_PER_BYTE = 8;
 
-static FanState  s_state[FANS_MAX];
-static uint16_t  s_avgArray[CO2_AVERAGE_LEN];
-static uint8_t   s_avgIdx       = AVG_NOT_INIT;
-static uint16_t  s_average      = 0;
+static FanState  s_state[FANS_MAX];                 // состояние вентиляторов: скорость, статус передачи, принудительная скорость
+static uint16_t  s_avgArray[CO2_AVERAGE_LEN];       // последние замеры CO2 для усреднения (CO2LevelAverageArray хаба)
+static uint8_t   s_avgIdx       = AVG_NOT_INIT;     // индекс последнего замера в s_avgArray (AVG_NOT_INIT - замеров не было)
+static uint16_t  s_average      = 0;                // среднее CO2 по s_avgArray, ppm
 static int8_t    s_speedPrev    = 0;     // fan_speed_previous
-static uint8_t   s_baseSpeed    = 0;
+static uint8_t   s_baseSpeed    = 0;                // общая скорость после поправки и ночного ограничения
 static bool      s_night        = false; // now_night
-static uint16_t  s_co2          = 0;
-static uint32_t  s_co2UptimeS   = 0;
-static uint32_t  s_nextCycle    = 0;
-static uint32_t  s_nextTick     = 0;
+static uint16_t  s_co2          = 0;                // CO2 последнего цикла рассылки, ppm
+static uint32_t  s_co2UptimeS   = 0;                // аптайм последнего замера CO2, с (0 - не было)
+static uint32_t  s_nextCycle    = 0;                // следующий цикл рассылки (millis)
+static uint32_t  s_nextTick     = 0;                // следующий секундный тик таймаутов (millis)
 static uint16_t  s_pending      = 0;     // битовая маска вентиляторов к отправке
-static bool      s_sending      = false;
+static bool      s_sending      = false;            // активный режим: идёт передача вентилятору s_sendFan
 static bool      s_allOff       = false; // режим «вентиляторы выключены» - рассылается скорость 0
-static uint8_t   s_sendFan      = 0;
+static uint8_t   s_sendFan      = 0;                // вентилятор, которому идёт передача
 static_assert(FANS_MAX <= 16, "s_pending - 16 бит");
 
 // Пассивный режим
@@ -50,14 +52,14 @@ constexpr uint32_t FNV_OFFSET   = 2166136261u;   // FNV-1a: подпись на�
 constexpr uint32_t FNV_PRIME    = 16777619u;
 constexpr uint8_t  RX_PER_CALL  = 4;             // запросов за один update()
 static uint32_t  s_radioSig     = 0;             // подпись применённых настроек радио
-static bool      s_radioSigSet  = false;
-static bool      s_reconfigured = false;
+static bool      s_radioSigSet  = false;            // подпись настроек радио уже вычислена
+static bool      s_reconfigured = false;            // радио перенастроено - флаг для main (сверка регистров)
 static uint8_t   s_pipes        = 0;             // каналов приёма (вентиляторов) в пассивном режиме
 static uint8_t   s_ackLoaded    = 0;             // маска каналов, для которых ответ лежит в TX FIFO
 static uint8_t   s_ackNext      = 0;             // с какого канала начинать загрузку (по кругу)
 static bool      s_ackReload    = false;         // сбросить ответы и загрузить заново (новые данные)
 static uint32_t  s_lastRxS      = 0;             // аптайм последнего запроса / перенастройки, с
-static uint32_t  s_rxCount      = 0;
+static uint32_t  s_rxCount      = 0;                // пассивный режим: принято запросов
 static_assert(RADIO_PIPES_MAX <= 8, "s_ackLoaded - 8 бит");
 
 void begin(uint32_t now)
@@ -234,6 +236,12 @@ void fanOverride(uint8_t fan, char cmd, uint16_t minutes)
     sendNow(fan, !(f.flags & FAN_FLAG_FORCED));
 }
 
+// Ошибка связи с вентилятором - в журнал (повторы складываются в одну запись)
+static void fanLog(uint8_t fan, FanErr e, uint8_t extra)
+{
+    ErrLog::add(ErrDev::Fan, (uint8_t)e, (uint16_t)((fan << BITS_PER_BYTE) | extra));
+}
+
 // Таймауты принудительной скорости и (пассивный) молчания вентиляторов - раз в секунду (user_loop хаба)
 static void tick()
 {
@@ -245,7 +253,10 @@ static void tick()
             if (--st.forcedTimeoutS == 0) f.flags &= (uint8_t)~FAN_FLAG_FORCED;
         }
         if (Cfg::co2.radioMode == RADIO_PASSIVE && f.timeoutS && st.txOkUptimeS && !st.remoteOff &&
-            up - st.txOkUptimeS > f.timeoutS) st.txStatus = TX_TIMEOUT;   // «+8 - silence» хаба CO2UART
+            up - st.txOkUptimeS > f.timeoutS && st.txStatus != TX_TIMEOUT) {   // «+8 - silence» хаба CO2UART
+            st.txStatus = TX_TIMEOUT;
+            fanLog(fan, FanErr::Silent, 0);
+        }
     }
 }
 
@@ -282,6 +293,7 @@ static void onRequest(uint8_t fan, uint8_t st)
     if (st == FAN_ST_EEPROM_BROKEN) {
         s.remoteEeprom = true;
         s.txStatus = TX_ERROR;
+        fanLog(fan, FanErr::Eeprom, 0);
         return;
     }
     s.remoteEeprom = false;
@@ -290,6 +302,7 @@ static void onRequest(uint8_t fan, uint8_t st)
     if (adj & FAN_ST_ADJ_SIGN) adj = (int8_t)(adj - 2 * FAN_ST_ADJ_SIGN);   // 4-битное со знаком
     s.remoteAdjust = adj;
     s.txStatus = ((st >> FAN_ST_TX_SHIFT) & FAN_ST_TX_MASK) == 0 ? TX_OK : TX_ERROR;
+    if (s.txStatus == TX_ERROR) fanLog(fan, FanErr::Remote, st);
 }
 
 static void passiveStep()
@@ -326,6 +339,7 @@ static void sendStep(uint32_t now)
         FanState& st = s_state[s_sendFan];
         st.txStatus = r == TxResult::Ok ? TX_OK : r == TxResult::NoAck ? TX_ERROR : TX_TIMEOUT;
         if (r == TxResult::Ok) st.txOkUptimeS = Net::uptimeS();
+        else fanLog(s_sendFan, r == TxResult::NoAck ? FanErr::NoAck : FanErr::NoResponse, 0);
         s_sending = false;
         return;
     }
@@ -346,6 +360,7 @@ static void sendStep(uint32_t now)
             return;
         }
         s_state[fan].txStatus = TX_TIMEOUT;   // модуля нет / адрес не записался
+        if (Radio::isChipOk()) fanLog(fan, r == TxResult::AddrFail ? FanErr::AddrFail : FanErr::NoResponse, 0);
     }
 }
 

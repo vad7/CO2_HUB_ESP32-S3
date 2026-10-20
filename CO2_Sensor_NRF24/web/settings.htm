@@ -10,7 +10,7 @@
 	<div class="content">
 		<h2 class="title">Настройки</h2>
 		<p class="center toc">
-			<a href="#g_control">Управление</a> · <a href="#g_fans">Вентиляторы</a> · <a href="#g_co2">Пороги CO<sub>2</sub></a> · <a href="#g_night">Ночь</a> · <a href="#g_screen">Экран</a> · <a href="#g_clock">Время</a> · <a href="#g_net">Сеть</a> · <a href="#g_sensors">История и датчики</a> · <a href="#g_radio">Радио nRF24</a> · <a href="#g_access">Пароль</a> · <a href="#g_ota">Прошивка</a> · <a href="#g_abc">ABC датчика</a> · <a href="info.htm">Система (?)</a>
+			<a href="#g_control">Управление</a> · <a href="#g_fans">Вентиляторы</a> · <a href="#g_co2">Пороги CO<sub>2</sub></a> · <a href="#g_night">Ночь</a> · <a href="#g_screen">Экран</a> · <a href="#g_clock">Время</a> · <a href="#g_net">Сеть</a> · <a href="#g_sensors">История и датчики</a> · <a href="#g_radio">Радио nRF24</a> · <a href="#g_access">Пароль</a> · <a href="#g_ota">Прошивка</a> · <a href="#g_abc">ABC датчика</a> · <a href="info.htm">Инфо</a>
 		</p>
 
 		<fieldset id="g_control"><legend>Управление</legend>
@@ -152,6 +152,15 @@
 				<tr><td class="label">Период чтения температуры, с:</td>
 					<td><input title='1..60' name='cfg_temp_period' maxlength='2' size='3'></td></tr>
 				<tr><td class="label">Датчик температуры сейчас:</td><td data-var="temp_status"></td></tr>
+				<tr id="tr_tsn"><td class="label">Серийный номер датчика:</td><td data-var="temp_serial"></td></tr>
+				<tr id="tr_tres"><td class="label">Разрешение DS18B20:</td><td><span id="tres_text"></span>
+					<span id="tres_set" hidden>&nbsp; <select id="tres_bits" title="Записывается в EEPROM датчика - сохраняется и после выключения">
+						<option value="12">12 бит (0,0625 °C)</option><option value="11">11 бит (0,125 °C)</option>
+						<option value="10">10 бит (0,25 °C)</option><option value="9">9 бит (0,5 °C)</option></select>
+					<input type="button" value="Записать в датчик" class="button" id="tres_go"></span></td></tr>
+				<tr><td class="label">Частота шины I2C, кГц:</td>
+					<td><input title='Шина K22, SHT40 и тача. Действует сразу после сохранения. С K22 - не выше 100 кГц (гайд I2C, табл. 5); меньше - для длинных проводов и слабых подтяжек' name='cfg_i2c_khz' maxlength='3' size='4'>
+					&nbsp;10..<span data-var="i2c_khz_max"></span></td></tr>
 				<tr><td class="label">Размер истории, сутки:</td>
 					<td><input title='1..365. Записей = сутки × 86400 / период рассылки; CO2 - 6 байт на запись, температура - ещё 2 (если датчик выбран). Не помещается в память - выделяется сколько влезет. При смене история очищается' name='cfg_hist_days' id='hist_days' maxlength='3' size='4'>
 					&nbsp;<span id="hist_est"></span></td></tr>
@@ -371,16 +380,33 @@ function histEst() {
 }
 document.getElementById('hist_days').oninput = histEst;
 
+/* Датчик температуры: серийный номер (если прочитан); DS18B20 - разрешение и запись в датчик, если не 12 бит */
+var TRES_STEP = { 9: '0,5', 10: '0,25', 11: '0,125', 12: '0,0625' };
+function tempInfo(v) {
+	document.getElementById('tr_tsn').hidden = !v.temp_serial;
+	var bits = Number(v.temp_res);
+	document.getElementById('tr_tres').hidden = !bits;
+	document.getElementById('tres_text').textContent = bits ? bits + ' бит (' + TRES_STEP[bits] + ' °C)' +
+		(bits == 12 ? ' - максимальное' : '') : '';
+	document.getElementById('tres_set').hidden = !bits || bits == 12;
+}
+document.getElementById('tres_go').onclick = function () {
+	var b = document.getElementById('tres_bits').value;
+	if (!confirm('Записать в DS18B20 разрешение ' + b + ' бит (в EEPROM датчика)?')) return;
+	App.send({ temp_res: b }, function () { setTimeout(function () { App.load(false, tempInfo); }, 2000); });
+};
+
 var started = false;
 App.start(function (v) {
 	histEst();
+	tempInfo(v);
 	/* DS18B20 - только если на плате есть свободный вывод (ES3C28P + S8 - нет) */
 	var ds = document.getElementById('opt_ds');
 	ds.disabled = v.temp_ds_ok != 1;
 	if (ds.disabled) ds.textContent = 'DS18B20 (нет свободного вывода)';
 	if (started) return;
 	started = true;
-	App.poll(v.cfg_co2_refresh_t);
+	App.poll(v.cfg_co2_refresh_t, tempInfo);
 });
 </script>
 </body></html>

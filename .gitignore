@@ -16,7 +16,9 @@ CO2_Sensor_NRF24/include/build_info.h
 # --- work/: в репозитории - docs_txt/ (текст даташитов), fonts/Montserrat-SemiBold.ttf (исходник
 #     include/font_digits.h), platformio.ini.bak_old_versions (откат на Arduino 2.x).
 #     Не нужно: выход скриптов (png, .exe тестов, логи), кэш d3, разовые патчи и отладка ---
-work/png/
+work/png/*
+!work/png/ui_main_es.png
+!work/png/ui_history_es.png
 work/d3/
 work/step/
 work/*.exe

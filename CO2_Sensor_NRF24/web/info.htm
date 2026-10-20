@@ -35,7 +35,7 @@
 		<p class="center"><small>Стек мин. - наименьший свободный стек задачи с её создания (меньше <span data-var="rtos_stack_warn"></span> б - красным).
 			Время и «Итого» - с запуска, доля от времени обоих ядер. Задачи - по ядрам, к которым привязаны; загрузка ядра -
 			за последние 2 с, «итог задач» - сумма «Итого» задач группы. Обновление раз в 2 с.</small></p>
-		<p class="center status error" id="t_over" style="display:none">Задач больше, чем вмещает таблица прошивки (SYSINFO_TASKS_MAX) - список пуст.</p>
+		<p class="center status inline error" id="t_over" style="display:none">Задач больше, чем вмещает таблица прошивки (SYSINFO_TASKS_MAX) - список пуст.</p>
 		</fieldset>
 
 		<fieldset id="g_buffers"><legend>Буферы истории (CO<sub>2</sub><span class="b_t"> + Температура</span>)</legend>
@@ -50,6 +50,13 @@
 		<p id="b_note" class="center"></p>
 		<p class="center">Размер задаётся в сутках - <a href="settings.htm#g_sensors">Настройки → История и датчики</a>.</p>
 		</fieldset>
+
+		<fieldset id="g_errlog"><legend>Журнал ошибок</legend>
+		<pre class="log" id="errlog">загрузка...</pre>
+		<p class="center"><small>Новые - сверху. Ошибки датчиков CO<sub>2</sub> и температуры, nRF24, связи с вентиляторами;
+			повторы той же ошибки - одной записью со счётчиком и временем последнего раза. Хранится в RAM устройства
+			(4 Кб, до 256 записей), после перезапуска - пустой. Обновляется вместе со страницей.</small></p>
+		</fieldset>
 	</div>
 <div id="app_footer"></div>
 <script>
@@ -57,8 +64,17 @@
    Размер - занято записанным (записей × байт на запись), Вмещает - выделено (hist_cap записей) */
 function days(rec, v) { return (rec * v.cfg_co2_period / 86400).toFixed(1); }
 function setText(id, text) { document.getElementById(id).textContent = text; }
+/* Журнал ошибок - текстом с устройства (/errlog.txt) */
+function errlog() {
+	fetch('/errlog.txt', { cache: 'no-store' })
+		.then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+		.then(function (t) { document.getElementById('errlog').textContent = t; })
+		.catch(function (e) { document.getElementById('errlog').textContent = 'Нет связи (' + e.message + ')'; });
+}
+
 function update(v) {
 	tasks(v);
+	errlog();
 	var temp = v.hist_temp_bytes > 0, cap = v.hist_cap || 1;
 	var cb = v.hist_co2_bytes / cap, tb = v.hist_temp_bytes / cap;   /* байт на запись */
 	var cols = document.querySelectorAll('.b_t');

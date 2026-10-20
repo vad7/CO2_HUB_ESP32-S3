@@ -30,16 +30,16 @@ struct Slot {
 static TaskStatus_t s_status[SYSINFO_TASKS_MAX];   // снимок FreeRTOS
 static Slot         s_slots[SYSINFO_TASKS_MAX];    // таблица (отсортирована)
 static Slot         s_prev[SYSINFO_TASKS_MAX];     // прошлый снимок - для поиска задачи по номеру
-static uint8_t      s_count     = 0;
-static bool         s_overflow  = false;
-static uint8_t      s_load[CORES];
-static int16_t      s_chipT     = 0;
-static bool         s_chipValid = false;
-static uint32_t     s_last      = 0;
-static int64_t      s_lastUs    = 0;
-static uint32_t     s_snapId    = 0;
+static uint8_t      s_count     = 0;                // строк в таблице задач
+static bool         s_overflow  = false;            // задач больше SYSINFO_TASKS_MAX - таблица пуста
+static uint8_t      s_load[CORES];                  // загрузка ядер за последний период, %
+static int16_t      s_chipT     = 0;                // температура кристалла, 0.1 °C
+static bool         s_chipValid = false;            // температура кристалла прочитана
+static uint32_t     s_last      = 0;                // последний снимок (millis)
+static int64_t      s_lastUs    = 0;                // время последнего снимка (esp_timer, мкс) - период для загрузки ядер
+static uint32_t     s_snapId    = 0;                // номер снимка - экран перерисовывает таблицу при смене
 
-static const char* const STATE_NAMES[TASK_STATE_COUNT] = { "Выполняется", "Готова", "Ожидает", "Приостановлена", "Удалена" };
+static const char* const STATE_NAMES[TASK_STATE_COUNT] = { "Выполняется", "Готова", "Ожидает", "Приостановлена", "Удалена" };  // состояния задач для веба
 static const char* const STATE_SHORT[TASK_STATE_COUNT] = { "W", "R", "B", "S", "D" };   // экран: раб., готова, ждёт, приост., удалена
 
 static uint8_t mapState(eTaskState s)

@@ -12,14 +12,17 @@
 #include <stdio.h>
 #include <string.h>
 #include "lgfx_include.h"
+#include "errlog.h"
+#include "i2c_bus.h"
 
 namespace Co2Sensor {
 
 constexpr uint32_t MS_PER_S = 1000;
 
 enum class State : uint8_t { Idle, WaitResponse };
-// Шаг обмена: CO2 - опрос; остальные - ABC (Map - проверка карты памяти, Mc - байт MeterControl)
-enum class Op : uint8_t { None, Co2, Map, ReadMc, WriteMc, WritePeriod, ReadPeriod };
+// Шаг обмена: CO2 - опрос, Status - Error Status после него; остальные - ABC (Map - проверка карты памяти,
+// Mc - байт MeterControl)
+enum class Op : uint8_t { None, Co2, Status, Map, ReadMc, WriteMc, WritePeriod, ReadPeriod };
 
 constexpr uint8_t TXN_DATA_MAX    = 2;                           // данных в одной транзакции (CO2, период ABC)
 constexpr uint8_t REQ_HDR_LEN     = 3;                           // команда|число, адрес Hi, Lo
@@ -32,18 +35,23 @@ constexpr uint8_t BITS_PER_BYTE   = 8;
 
 struct Txn { uint8_t cmd; uint16_t addr; uint8_t n; uint8_t data[TXN_DATA_MAX]; };
 
-static State    s_state       = State::Idle;
+static State    s_state       = State::Idle;        // ожидание ответа или простой
 static Op       s_op          = Op::None;     // шаг, ожидающий ответа
-static Txn      s_txn         = {};
-static uint8_t  s_resp[RESP_MAX];
-static uint32_t s_stateTime   = 0;
+static Txn      s_txn         = {};                 // текущая транзакция (запрос)
+static uint8_t  s_resp[RESP_MAX];                   // ответ датчика: статус, данные, сумма
+static uint32_t s_stateTime   = 0;                  // момент запроса / последнего чтения (millis)
 static uint32_t s_periodMs  = (uint32_t)CO2_POLL_DEF_S * MS_PER_S;   // период опроса, мс (из update)
-static uint32_t s_lastPoll    = 0;
-static uint32_t s_lastValid   = 0;
-static bool     s_everValid   = false;
-static uint16_t s_co2         = 0;
-static uint8_t  s_retries     = 0;
-static uint32_t s_errors      = 0;
+static uint32_t s_lastPoll    = 0;                  // последний опрос CO2 (millis)
+static uint32_t s_lastValid   = 0;                  // последнее верное значение CO2 (millis)
+static bool     s_everValid   = false;              // было хоть одно верное значение
+static uint16_t s_co2         = 0;                  // последнее значение CO2, ppm
+static uint8_t  s_retries     = 0;                  // повторов чтения ответа «не готов»
+static uint32_t s_errors      = 0;                  // ошибок обмена всего
+static Co2Err   s_lastErr     = Co2Err::None;       // ошибка последнего опроса (None - удачно)
+static uint8_t  s_errStatus   = 0;            // Error Status (RAM 0x1E), 0 - без ошибок
+static bool     s_statusNext  = false;        // после удачного чтения CO2 - прочитать Error Status
+static bool     s_wasValid    = false;        // для записи «нет данных» в журнал при переходе
+static uint8_t  s_failRun     = 0;            // неудачных опросов подряд (CO2 или Error Status ≠ 0); 0 - удачный
 
 // ABC
 static AbcState s_abcState    = AbcState::None;
@@ -54,7 +62,7 @@ static uint8_t  s_mc          = 0;            // MeterControl из EEPROM
 static uint8_t  s_mcNew       = 0;            // MeterControl к записи
 static uint16_t s_period      = 0;            // ABC Period из EEPROM, ч
 static bool     s_mcWritten   = false;        // MeterControl менялся - датчику нужен перезапуск питания
-static char     s_abcMsg[ABC_MSG_LEN] = "";
+static char     s_abcMsg[ABC_MSG_LEN] = "";         // ABC: ошибка или примечание
 
 void begin()
 {
@@ -76,7 +84,7 @@ static bool sendTxn(const Txn& t)
     uint8_t sum = 0;                              // сумма байт без адреса I2C (прил. A)
     for (uint8_t i = 0; i < k; i++) sum = (uint8_t)(sum + req[i]);
     req[k++] = sum;
-    return lgfx::i2c::transactionWrite(I2C_PORT, K22_I2C_ADDR, req, k, K22_I2C_HZ).has_value();
+    return lgfx::i2c::transactionWrite(I2C_PORT, K22_I2C_ADDR, req, k, I2cBus::hz()).has_value();
 }
 
 // 1 - выполнено (данные чтения - s_resp[1..n]), 0 - не готов (повторить), -1 - неверный ответ
@@ -84,7 +92,7 @@ static int8_t readTxn(const Txn& t)
 {
     const uint8_t len = respLen(t);
     memset(s_resp, 0, sizeof(s_resp));
-    if (!lgfx::i2c::transactionRead(I2C_PORT, K22_I2C_ADDR, s_resp, len, K22_I2C_HZ).has_value()) return 0; // NACK = занят
+    if (!lgfx::i2c::transactionRead(I2C_PORT, K22_I2C_ADDR, s_resp, len, I2cBus::hz()).has_value()) return 0; // NACK = занят
     if (!(s_resp[0] & STATUS_COMPLETE)) return 0;
     if ((s_resp[0] >> CMD_SHIFT) != t.cmd) return -1;
     uint8_t sum = 0;
@@ -104,6 +112,7 @@ static Txn txnFor(Op op)
     case Op::WritePeriod: return { K22_CMD_WRITE_EE, K22_EE_ABC_PERIOD, 2,
                                    { (uint8_t)(s_wantPeriod >> BITS_PER_BYTE), (uint8_t)s_wantPeriod } };
     case Op::ReadPeriod:  return { K22_CMD_READ_EE, K22_EE_ABC_PERIOD, 2, {} };
+    case Op::Status:      return { K22_CMD_READ_RAM, K22_RAM_ERR_STATUS, 1, {} };
     default:              return { K22_CMD_READ_RAM, K22_RAM_CO2, 2, {} };
     }
 }
@@ -174,11 +183,20 @@ static void abcStepDone(Op op)
     }
 }
 
+// Ошибка опроса (CO2 или Error Status): счётчик, последняя ошибка, журнал
+static void co2Fail(Co2Err e)
+{
+    s_errors++;
+    if (s_failRun < UINT8_MAX) s_failRun++;
+    s_lastErr = e;
+    ErrLog::add(ErrDev::Co2, (uint8_t)e);
+}
+
 static void startOp(Op op, uint32_t now)
 {
     s_txn = txnFor(op);
     if (!sendTxn(s_txn)) {
-        if (op == Op::Co2) s_errors++;
+        if (op == Op::Co2 || op == Op::Status) co2Fail(Co2Err::NoAnswer);
         else abcFail(op, "датчик не принял запрос (I2C)");
         return;
     }
@@ -191,8 +209,12 @@ static void startOp(Op op, uint32_t now)
 void update(uint32_t now, uint8_t periodS)
 {
     s_periodMs = (uint32_t)periodS * MS_PER_S;   // настройка меняется на лету
+    const bool valid = isValid(now);
+    if (s_wasValid && !valid) ErrLog::add(ErrDev::Co2, (uint8_t)Co2Err::Stale);
+    s_wasValid = valid;
     switch (s_state) {
     case State::Idle:
+        if (s_statusNext) { s_statusNext = false; startOp(Op::Status, now); break; }
         if (s_abcNext != Op::None) { startOp(s_abcNext, now); break; }   // ABC - между опросами CO2
         if (now - s_lastPoll < s_periodMs) break;
         s_lastPoll = now;
@@ -210,8 +232,22 @@ void update(uint32_t now, uint8_t periodS)
                 s_co2 = v < 0 ? 0 : (uint16_t)v;   // отрицательные бывают при тесте азотом
                 s_lastValid = now;
                 s_everValid = true;
+                s_statusNext = true;
             } else {
-                s_errors++;
+                co2Fail(r == 0 ? Co2Err::NoAnswer : Co2Err::BadFrame);
+            }
+        } else if (s_op == Op::Status) {
+            if (r == 1) {
+                s_errStatus = s_resp[1];
+                s_lastErr = s_errStatus ? Co2Err::Sensor : Co2Err::None;
+                if (s_errStatus) {
+                    ErrLog::add(ErrDev::Co2, (uint8_t)Co2Err::Sensor, s_errStatus);
+                    if (s_failRun < UINT8_MAX) s_failRun++;
+                } else {
+                    s_failRun = 0;                     // опрос удачен: CO2 и статус без ошибок
+                }
+            } else {
+                co2Fail(r == 0 ? Co2Err::NoAnswer : Co2Err::BadFrame);
             }
         } else if (r == 1) {
             abcStepDone(s_op);
@@ -228,10 +264,34 @@ bool     isValid(uint32_t now) { return s_everValid && (now - s_lastValid) < CO2
 uint16_t co2()                 { return s_co2; }
 uint32_t errorCount()          { return s_errors; }
 
+Co2Err   lastError()           { return s_lastErr; }
+uint16_t sensorStatus()        { return s_errStatus; }
+uint8_t  failRun()             { return s_failRun; }
+
+// Error Status (RAM 0x1E): биты «зависят от продукта» (гайд, табл. 11), описания для K22 нет - только код
+void statusBitsText(uint16_t status, char* buf, size_t len)
+{
+    if (status) snprintf(buf, len, "0x%02X", status);
+    else        snprintf(buf, len, "0x00 (без ошибок)");
+}
+
+void faultText(char* buf, size_t len)
+{
+    switch (s_lastErr) {
+    case Co2Err::NoAnswer: snprintf(buf, len, "нет связи"); break;
+    case Co2Err::BadFrame: snprintf(buf, len, "сбой обмена"); break;
+    case Co2Err::Sensor:   snprintf(buf, len, "ERR x%02X", s_errStatus); break;
+    default:               snprintf(buf, len, "нет данных"); break;
+    }
+}
+
 void statusText(char* buf, size_t len)
 {
-    if (isValid(millis())) snprintf(buf, len, "OK, %u ppm, ошибок обмена: %lu", s_co2, (unsigned long)s_errors);
-    else                   snprintf(buf, len, "нет данных, ошибок обмена: %lu", (unsigned long)s_errors);
+    char bits[ERRLOG_LINE_LEN / 2], fault[32];
+    statusBitsText(s_errStatus, bits, sizeof(bits));
+    faultText(fault, sizeof(fault));
+    if (isValid(millis())) snprintf(buf, len, "OK, %u ppm, Error Status %s, ошибок обмена: %lu", s_co2, bits, (unsigned long)s_errors);
+    else                   snprintf(buf, len, "%s, Error Status %s, ошибок обмена: %lu", fault, bits, (unsigned long)s_errors);
 }
 
 // ------------------------------------------------------------------ ABC

@@ -15,16 +15,16 @@ GlobalVars vars;
 NetCfg     net;
 uint8_t    nightOverride = NIGHT_AUTO;
 
-static const char* const NVS_NAMESPACE = "co2hub";
-static const char* const KEY_CO2  = "co2";
-static const char* const KEY_FANS = "fans";
-static const char* const KEY_VARS = "vars";
-static const char* const KEY_NET  = "net";
-static const char* const KEY_TOUCH = "touchcal";
+static const char* const NVS_NAMESPACE = "co2hub";  // раздел NVS настроек
+static const char* const KEY_CO2  = "co2";          // ключ NVS: CfgCo2
+static const char* const KEY_FANS = "fans";         // ключ NVS: CfgFan[]
+static const char* const KEY_VARS = "vars";         // ключ NVS: CfgVars
+static const char* const KEY_NET  = "net";          // ключ NVS: NetCfg
+static const char* const KEY_TOUCH = "touchcal";    // ключ NVS: калибровка тача
 
 
-static SemaphoreHandle_t s_mutex = nullptr;
-static StaticSemaphore_t s_mutexBuf;
+static SemaphoreHandle_t s_mutex = nullptr;         // замок настроек (CfgLock): loop() и веб-сервер
+static StaticSemaphore_t s_mutexBuf;                // память замка (статически, без кучи)
 
 void lock()   { xSemaphoreTakeRecursive(s_mutex, portMAX_DELAY); }
 void unlock() { xSemaphoreGiveRecursive(s_mutex); }
@@ -59,6 +59,7 @@ static void defaultsCo2()
     co2.digitsFont      = DIGITS_FONT_SMOOTH;
     co2.debug           = 0;
     co2.co2PollS        = CO2_POLL_DEF_S;
+    co2.i2cKhz          = I2C_KHZ_DEF;
     co2.nightStart      = NIGHT_START_DEF;
     co2.nightEnd        = NIGHT_END_DEF;
     co2.nightStartWd    = NIGHT_START_WD_DEF;
@@ -138,6 +139,7 @@ void sanitize()
     if (co2.digitsFont >= DIGITS_FONT_COUNT) co2.digitsFont = DIGITS_FONT_SMOOTH;
     if (co2.debug > 1) co2.debug = 0;
     if (co2.co2PollS < CO2_POLL_MIN_S || co2.co2PollS > CO2_POLL_MAX_S) co2.co2PollS = CO2_POLL_DEF_S;
+    if (co2.i2cKhz < I2C_KHZ_MIN || co2.i2cKhz > I2C_KHZ_MAX) co2.i2cKhz = I2C_KHZ_DEF;   // и после смены K22 / S8
 }
 
 // ------------------------------------------------------------------------------------------
@@ -156,7 +158,7 @@ static_assert(sizeof(BlobHdr) == 6, "заголовок блока NVS - 6 ба�
 // до 2026-10-05) не читаются: все настройки, кроме калибровки тача, - по умолчанию.
 constexpr uint16_t BLOB_MAGIC   = 0xC5A2;
 constexpr size_t   CFG_BLOB_MAX = 1024;          // статический буфер (без динамической памяти); 10 вентиляторов - 448 Б + запас под рост
-static uint8_t s_blob[CFG_BLOB_MAX];
+static uint8_t s_blob[CFG_BLOB_MAX];                // буфер чтения структуры из NVS (совместимость размеров)
 
 static_assert(sizeof(BlobHdr) + CFG_DATA_SIZE(CfgCo2)                <= CFG_BLOB_MAX, "CFG_BLOB_MAX мал для CfgCo2");
 static_assert(sizeof(BlobHdr) + CFG_DATA_SIZE(CfgFan) * FANS_MAX     <= CFG_BLOB_MAX, "CFG_BLOB_MAX мал для CfgFan[]");

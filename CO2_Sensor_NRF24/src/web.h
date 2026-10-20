@@ -3,5 +3,4 @@
 
 namespace Web {
     void begin();                                // запуск HTTP-сервера (своя задача FreeRTOS); уже запущен - ничего
-    void setRadioReport(const char* report);     // отчёт сверки регистров nRF24 для страницы «Система»
 }

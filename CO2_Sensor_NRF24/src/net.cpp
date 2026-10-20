@@ -32,11 +32,11 @@ namespace Net {
 constexpr int64_t  US_PER_S        = 1000000;
 constexpr uint32_t MS_PER_S        = 1000;
 
-static Mode     s_mode        = Mode::Off;
+static Mode     s_mode        = Mode::Off;          // текущий режим сети
 static volatile TimeSource s_timeSrc = TimeSource::None;   // пишут колбэк SNTP (задача lwIP) и веб-задача
 
-static bool     s_reconnect   = false;
-static bool     s_mdnsStarted = false;
+static bool     s_reconnect   = false;              // запрошено переподключение (смена сети / режима)
+static bool     s_mdnsStarted = false;              // mDNS (co2.local) запущен
 static bool     s_staWanted   = false;     // SSID задан - нужна связь с роутером
 static uint32_t s_offlineT0   = 0;         // с какого момента нет связи с роутером (millis)
 static uint32_t s_beginT      = 0;         // последняя попытка подключения (millis)

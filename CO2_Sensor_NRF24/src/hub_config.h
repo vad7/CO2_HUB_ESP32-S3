@@ -83,6 +83,7 @@ struct CfgCo2 {
     uint8_t  digitsFont;                  // DigitsFont: 0 - 7-сегментные, 1 - сглаженные (Montserrat)
     uint8_t  debug;                       // 1 - отладка: диагностика в Serial (касания, замер loop()); по умолч. 0
     uint8_t  co2PollS;                    // период опроса датчика CO2, с (0 в NVS = не задано)
+    uint16_t i2cKhz;                      // частота шины I2C (K22, SHT40, тач), кГц (0 в NVS = не задано)
     // новые поля - сюда
     CFG_END_MARKER;
 };

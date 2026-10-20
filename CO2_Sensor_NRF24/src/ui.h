@@ -4,7 +4,6 @@
 
 namespace Ui {
     void begin();
-    void setRadioReport(bool ok, const char* report);   // результат сверки регистров nRF24 (экран запуска)
-    void setRadioRegsOk(bool ok);                       // то же после смены режима связи (без вывода)
+    void showRadioStatus(bool found);                   // экран запуска: nRF24 найден / нет (подробности - журнал ошибок)
     void update(uint32_t now);                          // вызывать из loop()
 }

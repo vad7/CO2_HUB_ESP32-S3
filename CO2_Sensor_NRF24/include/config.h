@@ -175,7 +175,16 @@ constexpr uint8_t  CO2_FAIL_PERIODS      = 3;       // нет валидных �
 
 // --- SenseAir K22 (Docs/SensAir_I2C_comm_guide_2_1031.pdf) ---
 constexpr uint8_t  K22_I2C_ADDR          = 0x68;    // адрес по умолчанию
-constexpr uint32_t K22_I2C_HZ            = 100000;  // максимум для K2x
+
+// --- Шина I2C (K22, SHT40, тач FT6336G ES3C28P): частота - настройка co2.i2cKhz (I2cBus::hz()) ---
+constexpr uint16_t I2C_KHZ_DEF           = 100;     // по умолчанию
+constexpr uint16_t I2C_KHZ_MIN           = 10;      // ниже - для длинных проводов / слабых подтяжек
+#if CO2_SENSOR == CO2_SENSOR_K22
+constexpr uint16_t I2C_KHZ_MAX           = 100;     // K22: fSCL 0..100 кГц (гайд I2C, табл. 5)
+#else
+constexpr uint16_t I2C_KHZ_MAX           = 400;     // без K22: Fast mode (драйвер тача LovyanGFX - 400 кГц по умолчанию)
+#endif
+constexpr uint32_t HZ_PER_KHZ            = 1000;
 // Команда - старший полубайт 1-го байта запроса, младший - число байт данных (табл. 7)
 constexpr uint8_t  K22_CMD_WRITE_RAM     = 0x1;
 constexpr uint8_t  K22_CMD_READ_RAM      = 0x2;
@@ -190,6 +199,8 @@ constexpr uint8_t  K22_MC_ABC_DISABLE    = 0x02;    //   бит 1: 1 - ABC вы�
 constexpr uint16_t K22_EE_ABC_PERIOD     = 0x0040;  // ABC Period в EEPROM, 2 байта, старший первым, часы (табл. 16)
 constexpr uint32_t K22_WAIT_MS           = 20;      // tWAIT между запросом и ответом (тип. 20 мс)
 constexpr uint8_t  K22_READ_RETRIES      = 5;       // повторы чтения, если ответ «не готов»
+constexpr uint16_t K22_RAM_ERR_STATUS    = 0x001E;  // Error Status, 1 байт, битовое поле: 0 - без ошибок (табл. 11).
+                                                    // Значение битов - «в документации продукта» (у нас её нет) - выводится кодом
 
 // --- SenseAir S8 LP, Modbus RTU (Docs/Senseair S8 Modbus.md) ---
 constexpr uint32_t S8_BAUD               = 9600;    // только 9600, 8N1 (датчик передаёт 2 стоп-бита - 8N1 принимает)
@@ -217,11 +228,18 @@ constexpr bool     TEMP_DS18B20_AVAILABLE = TEMP_PIN_DQ >= 0;   // есть вы
 constexpr uint8_t  TEMP_PERIOD_DEF_S     = 10;      // период чтения по умолчанию (настройка 1..60 с)
 constexpr uint8_t  TEMP_PERIOD_MIN_S     = 1;
 constexpr uint8_t  TEMP_PERIOD_MAX_S     = 60;
-constexpr uint32_t DS18B20_CONV_MS       = 750;     // tCONV max при 12 битах (по умолчанию после включения)
+constexpr uint32_t DS18B20_CONV_MS       = 750;     // tCONV max при 12 битах (Docs/DS18B20.pdf, табл. 3); ждём всегда столько
+constexpr uint8_t  DS18B20_RES_MIN_BITS  = 9;       // разрешение: биты R1 R0 конфигурации - 9..12 бит (табл. 3)
+constexpr uint8_t  DS18B20_RES_MAX_BITS  = 12;      //   12 бит (0.0625 °C) - заводское значение
+constexpr uint32_t DS18B20_COPY_MS       = 10;      // Copy Scratchpad -> EEPROM: ждать не меньше 10 мс (раздел Copy Scratchpad)
+constexpr uint8_t  DS18B20_ROM_LEN       = 8;       // Read ROM: код семейства, 48-бит серийный номер, CRC
 constexpr uint8_t  TEMP_FAIL_COUNT       = 3;       // ошибок подряд - значение считается недостоверным
 constexpr uint8_t  SHT40_ADDRS[]         = { 0x44, 0x45, 0x46 };   // SHT40-AD1B / BD1B / CD1B (даташит SHT4x)
 constexpr uint8_t  SHT40_CMD_MEASURE_HI  = 0xFD;    // измерение T и RH, высокая точность
 constexpr uint32_t SHT40_MEASURE_MS      = 10;      // длительность измерения: макс. 8.2 мс + запас
+constexpr uint8_t  SHT40_CMD_SERIAL      = 0x89;    // серийный номер: 2 слова по 16 бит, за каждым CRC (табл. 8, гл. 4.7)
+constexpr uint32_t SHT40_SERIAL_WAIT_MS  = 1;       // время ответа в даташите не дано; не готов - NACK на чтение (табл. 8) -
+constexpr uint8_t  SHT40_SERIAL_TRIES    = 10;      //   повтор через столько же, не больше SHT40_SERIAL_TRIES раз
 
 // --- Радио nRF24L01+ (протокол хаба ESP8266 -> вентиляторы, Old/ESP8266_WIFI/app/nrf24l01.c) ---
 constexpr uint32_t RADIO_SPI_HZ          = 4000000;
@@ -322,6 +340,13 @@ constexpr char     HISTORY_CSV_SEP       = ';';     // history.csv: раздел
 constexpr char     HISTORY_CSV_DECIMAL   = ',';     //   и дробной части температуры
 constexpr uint32_t WEB_STACK_SIZE        = 8192;
 
+// --- Журнал ошибок (errlog.cpp): кольцевой, в RAM, теряется при перезапуске ---
+constexpr size_t   ERRLOG_BYTES          = 4096;    // размер журнала (запись - 16 байт: 256 записей)
+constexpr uint8_t  ERRLOG_MERGE_DEPTH    = 16;      // та же ошибка среди последних N записей - счётчик повторов, не новая запись
+constexpr size_t   ERRLOG_LINE_LEN       = 128;     // расшифрованная строка записи (экран, веб)
+constexpr size_t   ERRLOG_STAMP_LEN      = 24;      // время события «20.10 09:15:02» / «+123:04:05» с нулём
+constexpr size_t   ERRLOG_TIME_LEN       = 48;      // диапазон «20.10 23:58:03 - 21.10 07:12:45 x65535» с нулём
+
 // --- Главный цикл ---
 constexpr uint32_t LOOP_YIELD_TICKS      = 1;       // в конце loop() уступить ядро на 1 тик FreeRTOS (1 мс при 1000 Гц):
                                                     // проход не чаще 1000 раз/с - с запасом для всех автоматов
@@ -340,6 +365,8 @@ constexpr uint32_t UI_SETUP_TIMEOUT_MS   = 30000;   // выход из наст�
 constexpr uint32_t UI_SYSTEM_TIMEOUT_MS  = 60UL * 60 * 1000;   // группа «Система» (состояние, задачи, сеть - смотрят подолгу): выход через 60 мин
 constexpr uint32_t UI_HISTORY_TIMEOUT_MS = 30000;   // возврат с графика истории на главный экран
 constexpr uint32_t UI_MAIN_BUTTONS_MS    = 10000;   // кнопки главного экрана скрываются без касаний
+constexpr uint8_t  UI_FAULT_READS        = 5;       // шапка: ошибка датчика (CO2, t°) - после стольких неудачных чтений
+                                                    // подряд (любая ошибка; в журнал - каждая)
 constexpr uint8_t  TOUCH_CAL_MARK_SIZE   = 14;      // размер отметки калибровки в углу, px
 constexpr uint32_t TOUCH_CAL_DONE_MS     = 1000;    // показ «Сохранено» после калибровки (setup)
 constexpr uint32_t WEB_RESTART_DELAY_MS  = 500;     // перезапуск по команде из веба (после ответа)

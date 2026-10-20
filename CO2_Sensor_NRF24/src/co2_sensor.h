@@ -4,6 +4,7 @@
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
+#include "errlog.h"   // Co2Err
 
 namespace Co2Sensor {
     void     begin();
@@ -12,6 +13,13 @@ namespace Co2Sensor {
     uint16_t co2();                                 // последнее значение, ppm (отрицательные -> 0)
     uint32_t errorCount();                          // ошибок обмена
     void     statusText(char* buf, size_t len);     // состояние для веба: «OK, 812 ppm, ...»
+    // Ошибки (экран, веб; каждая пишется и в журнал ошибок)
+    Co2Err   lastError();                           // последний опрос: None - ответ верный и датчик без ошибок
+    uint16_t sensorStatus();                        // статус от датчика: S8 - MeterStatus (IR1), K22 - Error Status
+                                                    // (RAM 0x1E); 0 - без ошибок
+    void     statusBitsText(uint16_t status, char* buf, size_t len);   // расшифровка статуса
+    void     faultText(char* buf, size_t len);      // кратко для шапки экрана: «нет связи», «ERR x23», «ERR Mdb-3»
+    uint8_t  failRun();                             // неудачных опросов подряд (любая ошибка, и статус датчика)
 
     // ABC (автоматическая коррекция базы) - чтение и запись в датчике. Асинхронно: запрос (из веба, под CfgLock)
     // ставит задачу, её выполняет update() между опросами CO2; итог - abcState(). После записи - перечитывается.

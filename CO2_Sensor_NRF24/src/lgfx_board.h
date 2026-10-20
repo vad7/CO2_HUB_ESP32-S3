@@ -84,7 +84,7 @@ public:
             cfg.i2c_addr   = TOUCH_I2C_ADDR;
             cfg.pin_sda    = I2C_PIN_SDA;
             cfg.pin_scl    = I2C_PIN_SCL;
-            cfg.freq       = K22_I2C_HZ;   // общая шина с K22: не выше 100 кГц
+            cfg.freq       = (uint32_t)I2C_KHZ_DEF * HZ_PER_KHZ;   // при старте; настройка co2.i2cKhz - Ui (touchToKey)
             _touch.config(cfg);
             _panel.setTouch(&_touch);
         }

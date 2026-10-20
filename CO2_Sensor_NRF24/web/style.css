@@ -16,7 +16,13 @@ table.form td { padding: 3px 6px; }
 td.label { text-align: right; color: #444; }
 .button { padding: 5px 16px; cursor: pointer; }
 input, select { font-size: 14px; }
-.status { max-width: 760px; margin: 8px auto 0; padding: 6px 16px; border-radius: 6px; background: #e8f6ec; color: #1e6b34; text-align: center; }
+/* строка состояния («Сохранено», ошибки) - поверх страницы под меню: появление не сдвигает содержимое */
+.status { position: fixed; top: 40px; left: 50%; transform: translateX(-50%); z-index: 10; max-width: 90%; margin: 0;
+          padding: 6px 16px; border-radius: 6px; background: #e8f6ec; color: #1e6b34; text-align: center;
+          box-shadow: 0 2px 8px rgba(0,0,0,.25); }
+.status.inline { position: static; transform: none; box-shadow: none; max-width: none; margin: 8px auto 0; }
+pre.log { background: #f7f7f9; border: 1px solid #ddd; border-radius: 4px; padding: 6px 8px; font-size: 13px;
+          max-height: 420px; overflow: auto; white-space: pre-wrap; }
 .status.error { background: #fdecea; color: #a12a1f; }
 fieldset { border: 1px solid #ccd; border-radius: 6px; margin: 12px 0; padding: 4px 10px; }
 legend { font-weight: bold; color: #2c3e50; padding: 0 6px; }

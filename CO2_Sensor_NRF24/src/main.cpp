@@ -19,11 +19,9 @@
 #include "ui.h"
 #include "temp_sensor.h"
 #include "sys_info.h"
+#include "i2c_bus.h"
 
-constexpr uint32_t STARTUP_REPORT_MS = 5000;   // показ экрана запуска (отчёт радио, версия, дата сборки, автор)
-constexpr size_t   REPORT_LEN        = 200;
-
-static char s_report[REPORT_LEN];
+constexpr uint32_t STARTUP_REPORT_MS = 5000;   // показ экрана запуска (состояние радио, версия, дата сборки, автор)
 
 void setup()
 {
@@ -46,14 +44,11 @@ void setup()
     if (!History::configure(Cfg::co2.historyDays, Cfg::co2.transmitPeriodS, Cfg::co2.tempSensor != TEMP_SENSOR_NONE))
         Serial.println("История: нет памяти!");
 
+    I2cBus::setKhz(Cfg::co2.i2cKhz);   // частота шины I2C - до первого обмена
     Ui::begin();          // дисплей (+ тач и I2C на ES3C28P)
     Co2Sensor::begin();   // K22: I2C (на ES3C28P - та же шина, что у тача); S8: UART1
 
-    Radio::begin(RF_CHANNEL_DEF);
-    bool regsOk = Radio::verifyRegisters(s_report, sizeof(s_report));
-    Serial.println(s_report);
-    Ui::setRadioReport(regsOk, s_report);
-    Web::setRadioReport(s_report);
+    Ui::showRadioStatus(Radio::begin(RF_CHANNEL_DEF));   // не найден - в журнал ошибок (Radio::begin)
 
     FanControl::begin(millis());
     Net::begin();
@@ -65,12 +60,12 @@ void setup()
 // Максимум каждой части и всего прохода за LOOP_STAT_PERIOD_MS; в Serial - если проход дольше LOOP_SLOW_MS.
 // «замок» - ожидание CfgLock (держит веб), «пауза» - vTaskDelay в конце (больше 1 мс - ядро занято другими).
 enum LoopPart : uint8_t { LP_NET, LP_LOCK, LP_SYS, LP_CO2, LP_TEMP, LP_FAN, LP_UI, LP_YIELD, LP_COUNT };
-static const char* const LOOP_PART_NAMES[LP_COUNT] = { "сеть", "замок", "sys", "co2", "t", "вент", "экран", "пауза" };
+static const char* const LOOP_PART_NAMES[LP_COUNT] = { "сеть", "замок", "sys", "co2", "t", "вент", "экран", "пауза" };  // подписи частей прохода loop() в отчёте
 constexpr uint32_t US_PER_MS = 1000;
-static uint32_t s_partMaxUs[LP_COUNT];
-static uint32_t s_passMaxUs = 0;
-static uint32_t s_markUs    = 0;
-static uint32_t s_statT0    = 0;
+static uint32_t s_partMaxUs[LP_COUNT];              // максимум каждой части прохода за окно, мкс
+static uint32_t s_passMaxUs = 0;                    // максимум всего прохода за окно, мкс
+static uint32_t s_markUs    = 0;                    // отметка начала текущей части (micros)
+static uint32_t s_statT0    = 0;                    // начало окна замера (millis)
 
 static void loopMark(LoopPart p)
 {
@@ -108,18 +103,14 @@ void loop()
         loopMark(LP_LOCK);
         SysInfo::update(now);   // под замком: таблицу задач читает и веб
         loopMark(LP_SYS);
+        I2cBus::setKhz(Cfg::co2.i2cKhz);             // частота шины I2C - из настроек (меню / веб - сразу)
         Co2Sensor::update(now, Cfg::co2.co2PollS);   // период опроса - из настроек
         loopMark(LP_CO2);
         TempSensor::update(now, Cfg::co2.tempSensor, Cfg::co2.tempPeriodS);   // датчик температуры: тип из настроек
         History::setTemp(Cfg::co2.tempSensor != TEMP_SENSOR_NONE);           // буфер температуры - при выбранном датчике
         loopMark(LP_TEMP);
         FanControl::update(now, Co2Sensor::co2(), Co2Sensor::isValid(now));
-        if (FanControl::radioReconfigured()) {   // смена режима связи: сверка регистров для меню и веба
-            const bool regsOk = Radio::verifyRegisters(s_report, sizeof(s_report));
-            Serial.println(s_report);
-            Ui::setRadioRegsOk(regsOk);
-            Web::setRadioReport(s_report);
-        }
+        if (FanControl::radioReconfigured()) Radio::verifyRegisters(nullptr, 0, true);   // несовпавшие регистры - в журнал
         loopMark(LP_FAN);
         Ui::update(now);
         loopMark(LP_UI);

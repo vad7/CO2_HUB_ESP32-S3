@@ -2,7 +2,9 @@
 # Две крышки: «на стену» (щели над K22) и «на стол». Параметрический (CadQuery): все размеры - в блоках PARAMETERS
 # (по группам «# --- … ---», у каждого - описание, единицы и источник; в Readme таблицы параметров нет - только здесь).
 #   python Scripts/enclosure.py                       - собрать корпуса для обеих плат
-#   python Scripts/enclosure.py --board es3c28p       - только ES3C28P  (или --board tdisplay_s3 / tdisplay_s3_s8)
+#   python Scripts/enclosure.py --board es3c28p       - только ES3C28P  (или es3c28p_s8 / tdisplay_s3 / tdisplay_s3_s8)
+#   es3c28p_s8 - ES3C28P + SenseAir S8 LP: мелкий корпус как у T-Display + S8 (S8 на дне справа, nRF24 плашмя слева,
+#   разъём питания между ними), плата экрана - на стойках крышки, как с K22.
 #   tdisplay_s3_s8 - T-Display-S3 + SenseAir S8 LP: компактный корпус (приоритет - на стену), плата - на ушах
 #   (TDisplayS3_S8_ears_x4.stl, саморезы 2.5 x 6); S8 лежит на дне справа, прижат 2 штырьками крышки; nRF24 - слева от S8.
 #   T-Display: штырьки кнопок BOOT / IO14 - <ПЛАТА>_buttons_x2.stl (печать наконечником вниз).
@@ -30,7 +32,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "Build", "enclosure")
 
 # варианты: плата + датчик (tdisplay_s3_s8 - T-Display-S3 + SenseAir S8 LP, компактный корпус, крепление ушами)
-BOARDS = {"es3c28p": "ES3C28P", "tdisplay_s3": "TDisplayS3", "tdisplay_s3_s8": "TDisplayS3_S8"}
+BOARDS = {"es3c28p": "ES3C28P", "es3c28p_s8": "ES3C28P_S8", "tdisplay_s3": "TDisplayS3", "tdisplay_s3_s8": "TDisplayS3_S8"}
 
 
 def _arg_board():
@@ -46,7 +48,8 @@ BOARD = _arg_board()
 if BOARD not in BOARDS:
     raise SystemExit("неизвестная плата %r, допустимо: %s" % (BOARD, ", ".join(BOARDS)))
 IS_TD = BOARD.startswith("tdisplay_s3")
-IS_S8 = BOARD.endswith("_s8")          # датчик SenseAir S8 LP вместо K22 (только с T-Display)
+IS_S8 = BOARD.endswith("_s8")          # датчик SenseAir S8 LP вместо K22
+IS_TD_S8 = IS_TD and IS_S8             # T-Display + S8: плата на ушах (ES3C28P + S8 - на стойках, как с K22)
 PREFIX = BOARDS[BOARD]
 
 # ===================================== PARAMETERS =====================================
@@ -95,8 +98,12 @@ BACK_PARTS_H = 4.7                         # детали с обратной с
 HOLE_DX, HOLE_DY = 78.0, 42.0              # крепёжные отверстия платы (по длине / по ширине)
 PCB_HOLE_D = 3.2                           # отверстия платы ES3C28P (справочно, по чертежу)
 VA_L, VA_W = 58.05, 43.6                   # видимая область экрана
-VA_OFFSET_X = 2.835                        # смещение центра VA от центра платы (вдоль длины); окно центрируется с запасом на него
+VA_OFFSET_X = 2.835                        # смещение центра VA от центра платы (вдоль длины)
+VA_SIDE = 1                                # куда смещена VA в корпусе (вид спереди): +1 - вправо (на собранном
+                                           # корпусе слева в окне была полоса стекла без изображения - измерено)
 VA_MARGIN = 0.2                            # окно больше VA с каждой стороны
+WIN_CHAMFER = 1.6                          # ES3C28P: скос 45° кромки окна с лица крышки - палец достаёт до края
+                                           # тача (у стекла остаётся LID_T - WIN_CHAMFER ровной кромки)
 USB_W, USB_H = 13.0, 8.0                   # вырез под Type-C с корпусом штекера (обе платы)
 USB_MIN_BRIDGE = 1.5                       # перемычка стенки над вырезом тоньше - вырез открывается до верха стенки
 USB_BODY_H = 3.25                          # ES3C28P: корпус Type-C стоит на ТЫЛЬНОЙ стороне платы (не утоплен),
@@ -249,15 +256,45 @@ NRF_FLAT_WIRES_H = 6.0                     # макет: припаянные п
 
 # --- вентиляция корпуса (узкие щели - меньше пыли; щели вертикальные - без мостов при печати) ---
 SLOT_W = 1.2                               # ширина щели
-SLOT_PITCH = 3.4                           # шаг щелей
-SIDE_SLOT_Y = (11.0, 49.0)                 # боковые щели: диапазон по Y от низа платы K22 (низ - по ES3C28P:
+SLOT_PITCH = 3.4                           # шаг щелей (крышка «на стену»; стенки - в вариантах с S8)
+# Варианты с K22: сквозь прямые щели была видна вспышка лампы K22 - стенка в зоне щелей тоньше (VENT_SKIN), изнутри
+# напротив каждой щели (группы из VENT_GROUP_N щелей) - экран (VENT_BAFFLE_T) с зазором VENT_GAP, экран заходит за
+# края щели на VENT_OVERLAP, между экранами - проход VENT_BAFFLE_GAP (напротив сплошной стенки между щелями).
+# Снизу и сверху экраны срастаются со стенкой скосом 45° (печать без поддержек) и переходят в обычную толщину WALL;
+# с торцов зона закрыта стенками VENT_END_T. Воздух: щель -> зазор вбок -> проход между экранами. Прямой луч
+# не проходит - проверка vent_blocked() в build_one(). S8 не мигает видимым светом - у вариантов с S8 щели прямые.
+VENT_BAFFLE = not IS_S8                    # щели с экранами (только с K22)
+VENT_SKIN = 2.0                            # стенка в зоне щелей (1.2 - мало)
+VENT_GAP = 2.0                             # зазор между стенкой и экранами (1.0 - мало)
+VENT_BAFFLE_T = 1.8                        # толщина экрана (выступает внутрь за WALL на VENT_SKIN + VENT_GAP +
+                                           # VENT_BAFFLE_T - WALL = 3.4 мм)
+VENT_K22_CLR = 0.5                         # от экранов до платы K22: зазор K22 до стенок - не меньше выступа + это
+VENT_GROUP_N = 1                           # щелей напротив одного экрана (1 - экран у каждой щели; было 3 - мало проходов)
+VENT_GROUP_PITCH = 3.0                     # шаг щелей в группе (при VENT_GROUP_N > 1)
+VENT_OVERLAP = 1.8                         # экран заходит за края щели: шаг щелей = SLOT_W + 2 * это + проход = 6.8
+VENT_BAFFLE_GAP = 2.0                      # проход между экранами (1.2 - мало)
+VENT_END_T = 1.2                           # стенки зоны экранов: с торцов, снизу и сверху полости
+VENT_TOL = 0.1                             # проверка непрозрачности: щели и проходы при печати шире на столько
+SIDE_SLOT_Y = (10.5, 49.0)                 # боковые щели: диапазон по Y от низа платы K22 (низ - по ES3C28P:
                                            # у T-Display + K22 плата выше, нижняя щель - на той же высоте, что у ES)
+# ИК-лампа K22 - в нижнем левом углу платы (вид спереди): ближайшие к ней щели убраны
+VENT_SIDE_SKIP = 2                         # K22: нижних боковых щелей нет (на каждой стенке)
+VENT_BOTTOM_SKIP = 2                       # K22: левых нижних щелей нет
+LIDVENT_SKIP = (3, 2)                      # K22: щелей крышки «на стену» нет - слева, справа
+LIDVENT_CUT_LOW = 0.4                      # K22: щели крышки укорочены снизу на эту долю длины
+# K22: у лампы (нижний левый угол) левая и нижняя стенки утолщены изнутри на VENT_PROTRUDE (как экраны, до зон щелей),
+# от дна до юбки крышки; крышка там утолщена изнутри на LID_LAMP_T - сквозь светлый пластик лампа видна слабее
+LID_LAMP_T = 1.5                           # утолщение крышки (до камеры K22 остаётся K22_CLEAR_TOP - это = 0.5)
+LID_LAMP_GAP = 1.0                         # утолщение крышки - не ближе к её щелям
+VENT_SIDE_N = 10 if IS_TD else 9           # K22: щелей на боковой стенке, с нижней (было 7 / 6 - +3, выше K22; у ES
+                                           # верхняя зона экранов - в 0.5 мм от платы экрана, проверка в build_one)
 LIDVENT_X = 31.0                           # щели крышки «на стену»: в пределах ±X
 LIDVENT_Y_MARGIN = 3.0                     # щели крышки: отступ от краёв платы K22 (зоны S8) по Y
 # щели боковых и нижней стенки - все одной длины по глубине (Z). С K22 (ES3C28P, T-Display): по центру собранного
 # корпуса, отступ от наружной поверхности стены (Z = 0) и лица крышки (Z = D). S8: от верха направляющих S8
 # до верха стенки - открыты сверху (закрывает крышка)
-VENT_FROM_OUTER = 8.0                      # отступ щелей от стены и от лица крышки (варианты с K22), мм
+VENT_FROM_OUTER = 9.8                      # отступ щелей от стены и от лица крышки (варианты с K22), мм: верхний скос
+                                           # экранов (VENT_PROTRUDE под 45°) кончается ниже юбки крышки
 
 # --- разъём питания DC-022B 5.5 x 2.1 в нижней стенке (Docs/DC-022B_5.5x2.1.png; резьба и гайка - измерено) ---
 # Буртик снаружи, гайка изнутри; длины - от наружного торца буртика. В стенке - заужение изнутри до мембраны
@@ -283,9 +320,14 @@ MEMBRANE = 0.8                             # остаточная толщина
 WALLHOLE_X = 38.5                          # ES3C28P: заужения под шурупы в стену, ±X (по Y - между K22 и nRF24)
 # Крепёж: корпус -> стена, 2 шурупа 3.5-4 × 25-30 мм с полукруглой / прессшайбой головкой (Ø головки ≥ 7) + дюбели 5-6 мм
 WALLHOLE_D = 4.1                           # отверстие под шуруп в стену: на всю глубину до мембраны (проколоть шурупом / сверлить Ø4)
+BOTTOM_HOLE = (12.0, 20.0)                 # ES3C28P + K22: место под отверстие в дне - от правой и нижней наружных
+                                           # стенок (X, Y), мм; заужение до мембраны, как под шурупы
+BOTTOM_HOLE_D = WALLHOLE_D                 #   его диаметр (сверлить / проколоть)
 TOPHOLE_FROM_TOP = 17.0                    # третье заужение под шуруп (все варианты): по центру X, от верха корпуса
 TD_TOPHOLE_FROM_TOP = 12.0                 #   T-Display (K22 и S8) - на 5 мм выше
 WALLHOLE_HEAD_D = 7.0                      # головка шурупа в стену (проверка зазора до держателей nRF24)
+WALLHOLE_HEAD_H = 3.0                      # высота головки (полукруглая / прессшайба 3.5-4 мм - до ~2.8): под платой
+                                           # экрана (мелкие корпуса с S8) - до её деталей не меньше этого + 0.5
 
 # --- крепление крышки: 4 винта M3 в угловых блоках (все 4 одинаковые) ---
 # Крепёж: крышка -> корпус, 4 винта M3 × 12…16 с потайной головкой (DIN 965 / ISO 7046 или саморез потай 3 × 12…16);
@@ -304,40 +346,45 @@ ZONE_GAP = 5.0                             # между K22 и зоной экр
 # ======================================================================================
 
 # --- расчёт размеров (зависит от выбранной платы) ---
+VENT_PROTRUDE = VENT_SKIN + VENT_GAP + VENT_BAFFLE_T - WALL           # экраны выступают внутрь за стенку
+K22_WALL_CLR = VENT_PROTRUDE + VENT_K22_CLR if VENT_BAFFLE else 0.0   # K22 до стенки со щелями - не ближе
 ZH = TD_GLASS_W / 2 + TD_RIB_T + 0.3 - 0.3 + 0.28   # T-Display: половина высоты зоны экрана (рёбра 13.28 + толщина)
 ZH = TD_LCD_W / 2 + 0.3 + TD_RIB_T                  # = 14.78
 TD_S = 1 if USB_SIDE == "left" else -1              # T-Display: знак поворота платы в корпус
 TD_Y_CENTER = TD_GLASS_Y0 + TD_GLASS_L / 2          # центр стекла вдоль длины платы (от края USB)
 
-INNER_W = (K22_L + 2 * TD_CLR_SIDE) if IS_TD else (PCB_L + 2 * CLR_SIDE)
+INNER_W = (K22_L + 2 * max(TD_CLR_SIDE, K22_WALL_CLR)) if IS_TD else (PCB_L + 2 * CLR_SIDE)
 W = INNER_W + 2 * WALL
 BLOCK_X0 = INNER_W / 2 - BLOCK_W           # внутренняя грань углового блока (по модулю X)
 BLOCK_Y1_LOW = WALL + BLOCK_H              # верхняя грань нижнего блока
 # нижние блоки стоят рядом с K22 (ES3C28P) или под ним (T-Display: корпус уже платы K22 + блока)
 K22_XC = 0.0 if IS_TD else K22_SHIFT_X     # центр платы K22 по X (T-Display: по ширине места нет)
-K22_Y0 = WALL + CLR_LOW if BLOCK_X0 >= K22_L / 2 + abs(K22_XC) + 0.5 else BLOCK_Y1_LOW + 0.6
+K22_Y0 = WALL + max(CLR_LOW, K22_WALL_CLR) if BLOCK_X0 >= K22_L / 2 + abs(K22_XC) + 0.5 else BLOCK_Y1_LOW + 0.6
 K22_YC = K22_Y0 + K22_W / 2
 # S8: зона датчика по Y - зазор у нижней стенки, направляющие рёбер с обеих длинных сторон
 SENS_Y0 = (BLOCK_Y1_LOW + 0.6) if IS_S8 else K22_Y0     # низ зоны датчика (S8 - над нижними угловыми блоками)
 S8_GUIDE_YO = S8_W / 2 + S8_GUIDE_CLR                     # внутренняя грань направляющих от оси датчика
-S8_YC = SENS_Y0 + S8_RAISE_Y + S8_GUIDE_T + S8_GUIDE_YO   # ось датчика S8 по Y
+S8_YC = SENS_Y0 + (S8_RAISE_Y if IS_TD else 0.0) + S8_GUIDE_T + S8_GUIDE_YO   # ось датчика S8 по Y (ES: разъём
+                                                                               # питания сбоку от S8 - не поднят)
 NRF_FLAT = IS_S8                                          # nRF24 плашмя (вариант S8)
 NRF_FLAT_Y0 = SENS_Y0                                     # nRF24 плашмя: торец антенны (низ платы)
 SENS_Y1 = (max(S8_YC + S8_GUIDE_YO + S8_GUIDE_T, NRF_FLAT_Y0 + NRF_L) + S8_TOP_CLR) if IS_S8 \
     else (K22_Y0 + K22_W)                                 # верх зоны датчика
-if IS_S8:   # зона экрана выше: стойки ушей платы снаружи рёбер кармана
+if IS_TD_S8:   # зона экрана выше: стойки ушей платы снаружи рёбер кармана
     ZH = TD_EAR_POST_X + TD_EAR_POST_D / 2 + 0.5
 if IS_TD:
     YD = SENS_Y1 + (S8_ZONE_GAP if IS_S8 else ZONE_GAP + 0.1) + ZH
     H = YD + ZH + CLR_TOP_PCB + BLOCK_H + WALL
     PCB_Y0 = YD - TD_PCB_W / 2
 else:
-    PCB_Y0 = K22_Y0 + K22_W + ZONE_GAP + CLR_PCB
+    PCB_Y0 = (SENS_Y1 + S8_ZONE_GAP if IS_S8 else K22_Y0 + K22_W + ZONE_GAP) + CLR_PCB
     YD = PCB_Y0 + PCB_W / 2                # центр платы экрана
     H = PCB_Y0 + PCB_W + CLR_TOP_PCB + BLOCK_H + WALL
 if IS_S8:   # глубина: nRF24 на ребре с ухом и головкой самореза / S8 на дне + зазор над окном / стек экрана
     INNER_D = math.ceil(max(NRF_BOSS_H + NRF_T + max(NRF_CLAMP_T + SCREW25_HEAD_H, NRF_FLAT_WIRES_H) + S8_NRF_TOP_CLR,
-                            S8_H + S8_MIN_TOP_GAP, TD_STACK_H + TD_PCB_T + TD_BACK_H + S8_NRF_TOP_CLR))
+                            S8_H + S8_MIN_TOP_GAP,
+                            (TD_STACK_H + TD_PCB_T + TD_BACK_H if IS_TD else POST_H + PCB_T + BACK_PARTS_H) + S8_NRF_TOP_CLR,
+                            0 if IS_TD else POST_H + PCB_T + BACK_PARTS_H + WALLHOLE_HEAD_H + 0.5))   # ES: шурупы под платой
 else:
     INNER_D = K22_STAND_H + K22_T + K22_HEIGHT + K22_CLEAR_TOP
 ZL = BACK_T + INNER_D                      # внутренняя плоскость крышки (верх стенок)
@@ -353,17 +400,24 @@ D = ZL + LID_T
 VENT_Z0, VENT_Z1 = ((S8_Z0 + S8_GUIDE_H, ZL) if IS_S8 else
                     (VENT_FROM_OUTER, D - VENT_FROM_OUTER))           # щели стенок по Z (все одинаковые)
 VENT_CUT_Z1 = ZL + 1.0 if VENT_Z1 >= ZL else VENT_Z1                  # выше верха стенки - открыта сверху
+VENT_GROUP_W = (VENT_GROUP_N - 1) * VENT_GROUP_PITCH + SLOT_W          # группа щелей по краям
+VENT_BAFFLE_L = VENT_GROUP_W + 2 * VENT_OVERLAP                       # длина экрана
+VENT_PERIOD = VENT_BAFFLE_L + VENT_BAFFLE_GAP                         # шаг групп
+VENT_HALF = SLOT_W / 2 + VENT_OVERLAP + VENT_END_T                    # от крайней щели до края зоны экранов
 Z_PCB = ZL - POST_H                        # ES3C28P: лицевая сторона платы экрана
 BLOCK_Y0_TOP = H - WALL - BLOCK_H          # нижняя грань верхнего блока
 BLOCK_XC = INNER_W / 2 - BLOCK_W / 2       # ось винта по X (по модулю)
 SCREWS = ([(sx * BLOCK_XC, WALL + BLOCK_H / 2) for sx in (-1, 1)] +
           [(sx * BLOCK_XC, BLOCK_Y0_TOP + BLOCK_H / 2) for sx in (-1, 1)])
-ES_WIN_L = 2 * (VA_OFFSET_X + VA_L / 2 + VA_MARGIN)   # окно ES3C28P по центру, с запасом на смещение экрана
+ES_WIN_L = VA_L + 2 * VA_MARGIN            # окно ES3C28P - по видимой области (центр - ES_WIN_X)
+ES_WIN_X = VA_SIDE * VA_OFFSET_X           # центр окна ES3C28P по X
 ES_WIN_W = VA_W + 2 * VA_MARGIN
 TD_WIN_L, TD_WIN_W = TD_GLASS_L - 2 * TD_WIN_INSET, TD_GLASS_W - 2 * TD_WIN_INSET
 NRF_X_A = (-INNER_W / 2 + NRF_S8_WALL_GAP + NRF_L / 2) if IS_S8 else (TD_NRF_X if IS_TD else NRF_X)
 DC_NUT_R = DC_NUT_S / math.sqrt(3) + DC_NUT_CLR        # зона гайки: описанная окружность + зазор
-DC_X_A = TD_S8_DC_X if IS_S8 else BLOCK_X0 - DC_NUT_R - DC_BLOCK_GAP   # K22: справа, у нижнего блока
+DC_X_A = (BLOCK_X0 - DC_NUT_R - DC_BLOCK_GAP if not IS_S8 else    # K22: справа, у нижнего блока
+          TD_S8_DC_X if IS_TD else                                  # T-Display + S8: между nRF24 и поднятым S8
+          (NRF_FLAT_XC + NRF_FLAT_HALF + S8_XC - S8_L / 2) / 2)      # ES3C28P + S8: посередине между nRF24 и S8
 DC_Z = (BACK_T + ZL) / 2 if IS_S8 else D / 2           # ось разъёма: S8 - посередине стенки (гайка между дном
                                                        # и крышкой), K22 - по центру собранного корпуса
 DC_NUT_Y1 = DC_THREAD_L - DC_FLANGE_T                  # конец резьбы внутри (от наружной поверхности стенки)
@@ -387,7 +441,7 @@ NRF_EAR_N1 = NRF_HALF_SLOT + NRF_FIX_T                # ... до наружно�
 NRF_FIX_NC = NRF_HALF_SLOT + NRF_FIX_T / 2            # ось самореза по нормали
 # шурупы в стену: при nRF24 вдоль Y - на уровне центра экрана сбоку от модуля, иначе - посередине между
 # верхним краем K22 и зоной модуля (как при прежних направляющих: YD - NRF_W / 2 - 1.5)
-WALLHOLE_Y = YD if IS_TD else (K22_Y0 + K22_W + YD - NRF_W / 2 - 1.5) / 2
+WALLHOLE_Y = YD if (IS_TD or IS_S8) else (K22_Y0 + K22_W + YD - NRF_W / 2 - 1.5) / 2
 
 
 def S(shape):
@@ -622,9 +676,37 @@ def _sym_xs(half):
     return [-n * SLOT_PITCH / 2 + i * SLOT_PITCH for i in range(n + 1)]
 
 
+def vent_groups(s0, s1):
+    """K22: начала групп щелей (первая щель группы), первая - s0, последняя щель - не дальше s1."""
+    n = int((s1 - s0 - VENT_GROUP_W + SLOT_W) // VENT_PERIOD) + 1
+    return [s0 + i * VENT_PERIOD for i in range(max(n, 0))]
+
+
+def group_slots(groups):
+    return [g + j * VENT_GROUP_PITCH for g in groups for j in range(VENT_GROUP_N)]
+
+
+def side_groups():
+    """K22: начала групп боковых щелей - места от нижней (SIDE_SLOT_Y[0]) с шагом VENT_PERIOD, всего VENT_SIDE_N,
+    нижние VENT_SIDE_SKIP пропущены (у лампы K22)."""
+    return [side_y0() + i * VENT_PERIOD for i in range(VENT_SIDE_SKIP, VENT_SIDE_N // VENT_GROUP_N)]
+
+
+def side_y0():
+    """Место нижней боковой щели (и отступ крайней нижней от угла) - даже если сама щель пропущена."""
+    return WALL + CLR_LOW + SIDE_SLOT_Y[0]
+
+
+def bottom_groups():
+    """K22: начала групп нижних щелей - от угла на side_y0(), до зоны гайки; левые VENT_BOTTOM_SKIP пропущены."""
+    return vent_groups(-W / 2 + side_y0(), DC_X_A - DC_NUT_R - DC_SLOT_MARGIN - VENT_HALF)[VENT_BOTTOM_SKIP:]
+
+
 def side_slot_ys():
     """Центры боковых щелей по Y: напротив K22 (SIDE_SLOT_Y от низа платы K22; нижняя - от низа корпуса как у
-    ES3C28P, где K22 стоит у нижней стенки) или зоны датчика S8."""
+    ES3C28P, где K22 стоит у нижней стенки; группами под экраны) или зоны датчика S8 (прямые, шаг SLOT_PITCH)."""
+    if VENT_BAFFLE:
+        return group_slots(side_groups())
     y0, y1 = (SENS_Y0 + 3.0, SENS_Y1 - 3.0) if IS_S8 else (WALL + CLR_LOW + SIDE_SLOT_Y[0], K22_Y0 + SIDE_SLOT_Y[1])
     ys, out = y0, []
     while ys <= y1:
@@ -727,16 +809,22 @@ def bottom_slot_xs():
     S8 - под датчиком, мимо нижних блоков."""
     if IS_S8:
         xs = _range_xs(S8_XC - S8_L / 2, min(S8_XC + S8_L / 2, BLOCK_X0 - SLOT_W))
-    else:
-        x0 = -W / 2 + side_slot_ys()[0]
-        xs = [x0 + i * SLOT_PITCH for i in range(int((DC_X_A - x0) // SLOT_PITCH) + 1)]
+    else:   # группами под экраны: зона экранов (крайняя щель + VENT_HALF) - не ближе DC_SLOT_MARGIN к зоне гайки
+        return group_slots(bottom_groups())
     return [x for x in xs if abs(x - DC_X_A) >= DC_NUT_R + SLOT_W / 2 + DC_SLOT_MARGIN]   # у разъёма питания - нет
 
 
 def lidvent_xs():
     """Центры щелей крышки «на стену»: симметрично относительно X = 0, в пределах ±LIDVENT_X (все варианты;
     S8 - в обход штырьков, см. build_lid)."""
-    return _sym_xs(LIDVENT_X)
+    xs = _sym_xs(LIDVENT_X)
+    return xs if IS_S8 else xs[LIDVENT_SKIP[0]:len(xs) - LIDVENT_SKIP[1]]   # K22: у лампы и справа - без щелей
+
+
+def lidvent_y():
+    """Щели крышки по Y: над зоной датчика; K22 - укорочены снизу на LIDVENT_CUT_LOW (лампа - внизу)."""
+    y0, y1 = SENS_Y0 + LIDVENT_Y_MARGIN, SENS_Y1 - LIDVENT_Y_MARGIN
+    return (y0, y1) if IS_S8 else (y0 + LIDVENT_CUT_LOW * (y1 - y0), y1)
 
 
 def usb_center():
@@ -746,15 +834,79 @@ def usb_center():
     return YD, Z_PCB + USB_Z_FROM_PCB_FRONT
 
 
-def vent_slot(wp, c, depth):
-    """Щель стенки: профиль в плоскости стенки (по ширине - c ± SLOT_W / 2, по Z - VENT_Z0..VENT_CUT_Z1), выдавлен
+def vent_slot(wp, c, depth, width=SLOT_W):
+    """Щель стенки: профиль в плоскости стенки (по ширине - c ± width / 2, по Z - VENT_Z0..VENT_CUT_Z1), выдавлен
     сквозь стенку на depth. Закрытый верх - острый под 45° (вершина на VENT_Z1) - печать без мостов."""
-    h = SLOT_W / 2
+    h = width / 2
     if VENT_CUT_Z1 > VENT_Z1:                         # открыта сверху (закрывает крышка)
         pts = [(c - h, VENT_Z0), (c + h, VENT_Z0), (c + h, VENT_CUT_Z1), (c - h, VENT_CUT_Z1)]
     else:
         pts = [(c - h, VENT_Z0), (c + h, VENT_Z0), (c + h, VENT_Z1 - h), (c, VENT_Z1), (c - h, VENT_Z1 - h)]
     return wp.polyline(pts).close().extrude(depth)
+
+
+def vent_blocked():
+    """Прямой луч щель -> зазор -> проход между экранами не проходит. Проекция на плоскость (t - толщина от наружной
+    поверхности, u - вдоль стенки): щель [-w/2, w/2] на t 0..s, проход начинается в w/2 + ov от оси щели и шириной G,
+    на t s+g..s+g+b. Луч u = u0 + k t возможен, если k >= ov / g и k <= min(w / s, G / b, (w + ov + G) / (s + g + b)).
+    С допуском печати: щель и проход шире на VENT_TOL, заход экрана меньше на VENT_TOL.
+    Возвращает (запас = нужный наклон / допустимый, прошёл ли)."""
+    w, G, ov = SLOT_W + VENT_TOL, VENT_BAFFLE_GAP + VENT_TOL, VENT_OVERLAP - VENT_TOL
+    sk, g, b = VENT_SKIN, VENT_GAP, VENT_BAFFLE_T
+    need, allowed = ov / g, min(w / sk, G / b, (w + ov + G) / (sk + g + b))
+    return need / allowed, need > allowed
+
+
+def vent_baffle(groups):
+    """Щели с экранами одной стенки в её системе: u (вдоль стенки) -> X, толщина от наружной поверхности -> Y
+    (внутрь +), Z - как в корпусе. Возвращает (добавить - выступ с экранами, вырезать - щели, зазор, проходы)."""
+    u0 = groups[0] - VENT_HALF
+    u1 = groups[-1] + VENT_GROUP_W - SLOT_W + VENT_HALF
+    t_out, p = VENT_SKIN + VENT_GAP + VENT_BAFFLE_T, VENT_PROTRUDE
+    za, zc = VENT_Z0 - VENT_END_T, VENT_Z1 + VENT_END_T
+    add = (cq.Workplane("YZ", origin=(u0, 0, 0))
+           .polyline([(WALL - 0.01, za - p), (t_out, za), (t_out, zc), (WALL - 0.01, zc + p)]).close().extrude(u1 - u0))
+    g0, g1, h = VENT_SKIN, VENT_SKIN + VENT_GAP, VENT_GAP / 2
+    c0, c1 = u0 + VENT_END_T, u1 - VENT_END_T
+    cut = (cq.Workplane("YZ", origin=(c0, 0, 0))
+           .polyline([(g0, VENT_Z0), (g1, VENT_Z0), (g1, VENT_Z1 - h), (g0 + h, VENT_Z1), (g0, VENT_Z1 - h)])
+           .close().extrude(c1 - c0))
+    for c in group_slots(groups):                                   # щели стенки - до середины зазора
+        cut = cut.union(vent_slot(cq.Workplane("XZ", origin=(0, g0 + h, 0)), c, g0 + h + 0.5))
+    for a, b in zip(groups, groups[1:]):                            # проходы между экранами
+        c = (a + VENT_GROUP_W - SLOT_W / 2 + VENT_OVERLAP + b - SLOT_W / 2 - VENT_OVERLAP) / 2
+        cut = cut.union(vent_slot(cq.Workplane("XZ", origin=(0, t_out + 0.5, 0)), c, t_out + 0.5 - g0 - h,
+                                  VENT_BAFFLE_GAP))
+    return add, cut
+
+
+HAS_BOTTOM_HOLE = not IS_TD and not IS_S8   # с S8 точка - под датчиком, у T-Display - под K22
+
+
+def bottom_hole_xy():
+    return W / 2 - BOTTOM_HOLE[0], BOTTOM_HOLE[1]
+
+
+def lamp_walls():
+    """K22: утолщение левой и нижней стенок у лампы (нижний левый угол) изнутри на VENT_PROTRUDE - до начала зон
+    экранов щелей (срастаются с ними), от дна до юбки крышки (ниже на LIP_CLR + 0.05)."""
+    t, z1 = VENT_PROTRUDE, ZL - LIP_H - LIP_CLR - 0.05
+    xl, yb = -INNER_W / 2, WALL
+    y_side = side_slot_ys()[0] - VENT_HALF + 0.01          # низ зоны экранов левой стенки
+    x_bot = bottom_slot_xs()[0] - VENT_HALF + 0.01         # левый край зоны экранов нижней стенки
+    return (box(xl - 0.5, xl + t, yb - 0.5, y_side, BACK_T - 0.5, z1)
+            .union(box(xl - 0.5, x_bot, yb - 0.5, yb + t, BACK_T - 0.5, z1)))
+
+
+def lid_lamp():
+    """K22: утолщение крышки изнутри у лампы - буквой Г: слева от щелей крышки (выше нижнего углового блока)
+    и под ними (между нижними блоками, до правого края K22); от щелей - LID_LAMP_GAP."""
+    xs, (ly0, _) = lidvent_xs(), lidvent_y()
+    xin, yin = -INNER_W / 2 + LIP_CLR + LIP_T, WALL + LIP_CLR + LIP_T
+    z0 = ZL - LID_LAMP_T
+    left = box(xin, xs[0] - SLOT_W / 2 - LID_LAMP_GAP, BLOCK_Y1_LOW + 0.5, SENS_Y1, z0, ZL + 0.01)
+    low = box(-BLOCK_X0 + 0.5, min(K22_XC + K22_L / 2, BLOCK_X0 - 0.5), yin, ly0 - LID_LAMP_GAP, z0, ZL + 0.01)
+    return left.union(low)
 
 
 def build_body():
@@ -791,16 +943,27 @@ def build_body():
         body = body.cut(cyl(sx * WALLHOLE_X_A, WALLHOLE_Y, WALLHOLE_D, MEMBRANE, BACK_T + 0.5))
     # третье - по центру, TOPHOLE_FROM_TOP от верха корпуса (за платой экрана дно свободно)
     body = body.cut(cyl(0, H - TOPHOLE_FROM_TOP_A, WALLHOLE_D, MEMBRANE, BACK_T + 0.5))
+    if HAS_BOTTOM_HOLE:   # ES3C28P + K22: место под отверстие в дне (справа снизу)
+        body = body.cut(cyl(*bottom_hole_xy(), BOTTOM_HOLE_D, MEMBRANE, BACK_T + 0.5))
 
     # щели боковых и нижней стенки вдоль Z (вертикальные при печати - без мостов): все одной длины, по центру
     # собранного корпуса - VENT_Z0..VENT_Z1 (отступ от стены и лица крышки); выше верха стенки - открыты сверху.
     # Закрытый верх - острый (45°, вершина на VENT_Z1): без мостов над щелями
-    for ys in side_slot_ys():
-        for sx in (-1, 1):
-            xa, xb = (W / 2 - WALL - 0.5, W / 2 + 0.5) if sx > 0 else (-W / 2 - 0.5, -W / 2 + WALL + 0.5)
-            body = body.cut(vent_slot(cq.Workplane("YZ", origin=(xa, 0, 0)), ys, xb - xa))
-    for x in bottom_slot_xs():
-        body = body.cut(vent_slot(cq.Workplane("XZ", origin=(0, WALL + 0.5, 0)), x, WALL + 1))
+    if VENT_BAFFLE:   # K22: у лампы - утолщение левой и нижней стенок до зон экранов
+        body = body.union(lamp_walls())
+    if VENT_BAFFLE:   # K22: группы щелей, напротив - экраны (vent_baffle); нижняя стенка - как есть, боковые - поворотом
+        sa, sc = vent_baffle(side_groups())
+        sa, sc = (v.rotate((0, 0, 0), (0, 0, 1), 90) for v in (sa, sc))        # толщина -> -X, u -> +Y
+        ba, bc = vent_baffle(bottom_groups())
+        body = (body.union(ba).union(sa.translate((W / 2, 0, 0))).union(sa.mirror("YZ").translate((-W / 2, 0, 0)))
+                .cut(bc).cut(sc.translate((W / 2, 0, 0))).cut(sc.mirror("YZ").translate((-W / 2, 0, 0))))
+    else:
+        for ys in side_slot_ys():
+            for sx in (-1, 1):
+                xa, xb = (W / 2 - WALL - 0.5, W / 2 + 0.5) if sx > 0 else (-W / 2 - 0.5, -W / 2 + WALL + 0.5)
+                body = body.cut(vent_slot(cq.Workplane("YZ", origin=(xa, 0, 0)), ys, xb - xa))
+        for x in bottom_slot_xs():
+            body = body.cut(vent_slot(cq.Workplane("XZ", origin=(0, WALL + 0.5, 0)), x, WALL + 1))
 
     # разъём питания DC-022B: заужение в нижней стенке изнутри (сверлить)
     body = body.cut(dc_hole())
@@ -896,7 +1059,7 @@ def td_pocket(lid):
     for sx in (-1, 1):
         xa, xb = (xo, xo + TD_RIB_T) if sx > 0 else (-xo - TD_RIB_T, -xo)
         lid = lid.union(tdbox(xa, xb, ys0, ys1, -0.5, TD_RIB_H))
-        if IS_S8:                                 # вариант с ушами: защёлок нет, рёбра сплошные
+        if IS_TD_S8:                              # вариант с ушами: защёлок нет, рёбра сплошные
             continue
         for yh in TD_HOOK_Y:                      # место под вклеиваемую защёлку: разрыв ребра + глухое гнездо
             hw = TD_HOOK_W / 2
@@ -906,13 +1069,22 @@ def td_pocket(lid):
             lid = lid.cut(tdbox(x0, x1, yh - hw - TD_CLIP_FIT, yh + hw + TD_CLIP_FIT, -TD_CLIP_BASE_D, 0.01))
     # ребро у дальнего от USB торца
     lid = lid.union(tdbox(-xo - TD_RIB_T, xo + TD_RIB_T, TD_PCB_L + 0.3, TD_PCB_L + 0.3 + TD_RIB_T, -0.5, TD_RIB_H))
-    if IS_S8:   # стойки ушей платы: от крышки до тыла платы, отверстие под саморез M3 с торца стойки
+    if IS_TD_S8:   # стойки ушей платы: от крышки до тыла платы, отверстие под саморез M3 с торца стойки
         d0 = TD_STACK_H + TD_PCB_T
         for bx, by in td_ear_posts():
             X, Y = td_xy(bx, by)
             lid = lid.union(cyl(X, Y, TD_EAR_POST_D, ZL - d0, ZL + 0.5))
             lid = lid.cut(cyl(X, Y, TD_EAR_PILOT, ZL - d0 - 1, ZL - d0 + TD_EAR_PILOT_DEPTH))
     return lid
+
+
+def win_chamfer(xc, yc, l, w, r):
+    """Скос 45° кромки окна с лица крышки на WIN_CHAMFER (вершина фаски - на лице, печать лицом вниз - нависание 45°)."""
+    e = WIN_CHAMFER + 0.5                                   # выше лица на 0.5 - без совпадающих граней
+    s0 = cq.Sketch().rect(l, w).vertices().fillet(r)
+    s1 = cq.Sketch().rect(l + 2 * e, w + 2 * e).vertices().fillet(r + e)
+    return (cq.Workplane("XY").workplane(offset=D - WIN_CHAMFER).center(xc, yc)
+            .placeSketch(s0, s1.moved(cq.Location(cq.Vector(0, 0, e)))).loft())
 
 
 def build_lid(vents):
@@ -925,7 +1097,8 @@ def build_lid(vents):
             X, Y = td_xy(bx, by)
             lid = lid.cut(cyl(X, Y, TD_BTN_HOLE_D, ZL - 1, D + 1))
     else:
-        win = rbox(0, YD, ES_WIN_L, ES_WIN_W, ZL - 1, D + 1, 1.0)           # по центру, с запасом на смещение VA
+        win = rbox(ES_WIN_X, YD, ES_WIN_L, ES_WIN_W, ZL - 1, D + 1, 1.0)    # по видимой области экрана
+        win = win.union(win_chamfer(ES_WIN_X, YD, ES_WIN_L, ES_WIN_W, 1.0))  # скос кромки с лица - для тача
         gl, gw = GLASS_L + 2 * GLASS_FIT, GLASS_W + 2 * GLASS_FIT
         ring = rbox(0, YD, gl + 2 * GLASS_RING_T, gw + 2 * GLASS_RING_T, ZL - GLASS_H + 0.3, ZL, 1.5)
         ring = ring.cut(rbox(0, YD, gl, gw, ZL - GLASS_H, ZL + 1, 0.3))
@@ -968,11 +1141,13 @@ def build_lid(vents):
         lip = lip.cut(box(DC_X_A - DC_NUT_R - 0.5, DC_X_A + DC_NUT_R + 0.5, 0, WALL + LIP_CLR + LIP_T + 0.5,
                           ZL - LIP_H - 1, ZL + 1))
     lid = lid.union(lip)
+    if VENT_BAFFLE:   # K22: у лампы крышка толще (изнутри)
+        lid = lid.union(lid_lamp())
 
     # щели над K22 / S8 (версия «на стену»): вертикальные сквозные, без мостов; S8 - в обход штырьков
     if vents:
         for x in lidvent_xs():
-            segs = [(SENS_Y0 + LIDVENT_Y_MARGIN, SENS_Y1 - LIDVENT_Y_MARGIN)]
+            segs = [lidvent_y()]
             for px, py in (s8_pins() if IS_S8 else []):
                 if abs(x - px) < S8_PIN_D / 2 + S8_PIN_WALL + SLOT_W / 2:
                     segs = split_segments(segs, py - S8_PIN_D / 2 - S8_PIN_WALL, py + S8_PIN_D / 2 + S8_PIN_WALL)
@@ -1034,7 +1209,7 @@ def dummies():
     pcb = box(-PCB_L / 2, PCB_L / 2, PCB_Y0, PCB_Y0 + PCB_W, Z_PCB - PCB_T, Z_PCB)
     parts = box(-PCB_L / 2 + 6, PCB_L / 2 - 6, PCB_Y0 + 4, PCB_Y0 + PCB_W - 4, Z_PCB - PCB_T - BACK_PARTS_H, Z_PCB - PCB_T)
     glass = box(-GLASS_L / 2, GLASS_L / 2, YD - GLASS_W / 2, YD + GLASS_W / 2, Z_PCB, Z_PCB + GLASS_H)
-    return {"k22": k22, "pcb": pcb, "pcb_parts": parts, "glass": glass,
+    return {**sens, "pcb": pcb, "pcb_parts": parts, "glass": glass,
             "nrf24": nrf, "nrf_parts": nrf_parts, "nrf_wires": nrf_wires, **dc_parts()}
 
 
@@ -1082,6 +1257,10 @@ def layout(path):
                    color="r", ha="center", va="top", fontsize=7)
         a.text(sx * WALLHOLE_X_A, WALLHOLE_Y - WALLHOLE_D / 2 - 1, "в стену Ø%.1f" % WALLHOLE_D,
                color="r", ha="center", va="top", fontsize=7)
+    if HAS_BOTTOM_HOLE:
+        bx, by = bottom_hole_xy()
+        a.add_patch(Circle((bx, by), BOTTOM_HOLE_D / 2, fill=False, ec="r", lw=2))
+        a.text(bx, by + BOTTOM_HOLE_D / 2 + 1, "отв. Ø%.1f" % BOTTOM_HOLE_D, color="r", ha="center", va="bottom", fontsize=7)
         for ys in side_slot_ys():
             a.plot([sx * W / 2] * 2, [ys - SLOT_W / 2, ys + SLOT_W / 2], c="r", lw=2, alpha=.7)
     if IS_S8:
@@ -1112,7 +1291,7 @@ def layout(path):
     if not IS_S8:
         a.text(K22_XC, K22_YC - 12, "K22 (камера до %.0f мм)\nщели крышки «на стену» - пунктир" % K22_HEIGHT, ha="center", va="center", color="darkorange")
     for x in lidvent_xs():
-        a.plot([x, x], [SENS_Y0 + LIDVENT_Y_MARGIN, SENS_Y1 - LIDVENT_Y_MARGIN], c="darkorange", lw=1, ls="--")
+        a.plot([x, x], list(lidvent_y()), c="darkorange", lw=1, ls="--")
     if IS_TD:
         trect(a, -TD_PCB_W / 2, TD_PCB_W / 2, 0, TD_PCB_L, ec="green", lw=2)
         trect(a, -TD_GLASS_W / 2, TD_GLASS_W / 2, TD_GLASS_Y0, TD_GLASS_Y0 + TD_GLASS_L, ec="green", ls="--")
@@ -1122,10 +1301,10 @@ def layout(path):
         for sx in (-1, 1):
             xa, xb = (xo, xo + TD_RIB_T) if sx > 0 else (-xo - TD_RIB_T, -xo)
             trect(a, xa, xb, TD_RIB_Y[0], TD_RIB_Y[1], ec="teal", lw=1)
-            for yh in ([] if IS_S8 else TD_HOOK_Y):
+            for yh in ([] if IS_TD_S8 else TD_HOOK_Y):
                 trect(a, xa, xb, yh - TD_HOOK_W / 2, yh + TD_HOOK_W / 2, ec="m", lw=2)
         trect(a, -xo - TD_RIB_T, xo + TD_RIB_T, TD_PCB_L + 0.3, TD_PCB_L + 0.3 + TD_RIB_T, ec="teal", lw=1)
-        if IS_S8:
+        if IS_TD_S8:
             for bx, by in td_ear_posts():
                 a.add_patch(Circle(td_xy(bx, by), TD_EAR_POST_D / 2, fill=False, ec="m", lw=1.5))
                 sx = 1 if bx > 0 else -1
@@ -1141,8 +1320,9 @@ def layout(path):
     else:
         rect(a, -PCB_L / 2, PCB_L / 2, PCB_Y0, PCB_Y0 + PCB_W, ec="green", lw=2)
         rect(a, -GLASS_L / 2, GLASS_L / 2, YD - GLASS_W / 2, YD + GLASS_W / 2, ec="green", ls="--")
-        rect(a, -ES_WIN_L / 2, ES_WIN_L / 2, YD - ES_WIN_W / 2, YD + ES_WIN_W / 2, ec="b", lw=1.5)
-        a.text(0, YD + 8, "окно экрана\n%.1f x %.1f (по центру)" % (ES_WIN_L, ES_WIN_W), ha="center", va="center", color="b")
+        rect(a, ES_WIN_X - ES_WIN_L / 2, ES_WIN_X + ES_WIN_L / 2, YD - ES_WIN_W / 2, YD + ES_WIN_W / 2, ec="b", lw=1.5)
+        a.text(ES_WIN_X, YD + 8, "окно экрана\n%.1f x %.1f (по видимой области,\nцентр X=%.1f, скос %.1f)"
+               % (ES_WIN_L, ES_WIN_W, ES_WIN_X, WIN_CHAMFER), ha="center", va="center", color="b")
         for sx in (-1, 1):
             for sy in (-1, 1):
                 a.add_patch(Circle((sx * HOLE_DX / 2, YD + sy * HOLE_DY / 2), POST_D / 2, fill=False, ec="green"))
@@ -1301,7 +1481,7 @@ def build_one():
     body, dm = build_body(), dummies()
     lids = {"lid_wall": build_lid(True), "lid_table": build_lid(False)}
     clips = td_clips_in_lid() if IS_TD and not IS_S8 else []
-    ears = td_ears_in_place() if IS_S8 else []
+    ears = td_ears_in_place() if IS_TD_S8 else []
     pins = td_buttons_in_lid() if IS_TD else []
     nrf_ear_p = nrf_ear_in_place()
 
@@ -1315,6 +1495,23 @@ def build_one():
         print("  %-9s solids=%d valid=%s объём=%.1f см3" % (name, n, valid, part.val().Volume() / 1000))
         ok &= valid and n == 1
 
+    if VENT_BAFFLE:
+        ratio, blocked = vent_blocked()
+        print("  щели стенок: по %d напротив экрана, шаг экранов %.1f, стенка %.1f + зазор %.1f + экран %.1f (внутрь на %.1f), "
+              "заход %.1f, проход %.1f: прямой луч %s (запас %.2f, щели +%.1f мм); бока %d щелей, низ %d"
+              % (VENT_GROUP_N, VENT_PERIOD, VENT_SKIN, VENT_GAP, VENT_BAFFLE_T, VENT_PROTRUDE, VENT_OVERLAP,
+                 VENT_BAFFLE_GAP, "не проходит" if blocked else "ПРОХОДИТ", ratio, VENT_TOL,
+                 len(side_slot_ys()), len(bottom_slot_xs())))
+        ok &= blocked and VENT_PROTRUDE >= 0
+        # зона экранов на боковых стенках (с запасом VENT_K22_CLR) - мимо платы экрана, nRF24, проводов и шурупов
+        ys = side_slot_ys()
+        ya, yb = ys[0] - VENT_HALF - VENT_K22_CLR, ys[-1] + VENT_HALF + VENT_K22_CLR
+        xi = INNER_W / 2 - VENT_PROTRUDE - VENT_K22_CLR
+        zone = box(xi, INNER_W / 2, ya, yb, BACK_T, ZL).union(box(-INNER_W / 2, -xi, ya, yb, BACK_T, ZL))
+        heads = [cyl(sx * WALLHOLE_X_A, WALLHOLE_Y, WALLHOLE_HEAD_D, BACK_T, BACK_T + WALLHOLE_HEAD_H) for sx in (-1, 1)]
+        bad = [k for k, d in list(dm.items()) + [("шуруп", h) for h in heads] if k != "k22" and volume_of(zone, d) > 0.01]
+        print("  зона экранов боковых стенок Y %.1f..%.1f: %s" % (ya, yb, "свободна" if not bad else "ЗАДЕВАЕТ " + ", ".join(bad)))
+        ok &= not bad
     gap_k22 = WALLHOLE_Y - WALLHOLE_D / 2 - SENS_Y1
     # до держателей и зоны проводов nRF24 (по плану; выемка - в дне, провода - выше, но нужен доступ отвёрткой)
     zones = nrf_zones()
@@ -1325,6 +1522,17 @@ def build_one():
     print("  шуруп по центру: Y=%.1f (%.0f от верха), зазор головки Ø%.0f до nRF24 (держатели и провода) %.1f мм"
           % (H - TOPHOLE_FROM_TOP_A, TOPHOLE_FROM_TOP_A, WALLHOLE_HEAD_D, gap_top))
     ok &= gap_top >= 0
+    heads = [(sx * WALLHOLE_X_A, WALLHOLE_Y) for sx in (-1, 1)] + [(0, H - TOPHOLE_FROM_TOP_A)]
+    hz = []   # головки под деталями платы экрана: зазор по высоте
+    for hx, hy in heads:
+        hb = cyl(hx, hy, WALLHOLE_HEAD_D, BACK_T, BACK_T + WALLHOLE_HEAD_H).val().BoundingBox()
+        for k in ("pcb_parts", "pcb"):
+            pb = dm[k].val().BoundingBox()
+            if over_xy(hb, pb):
+                hz.append(pb.zmin - hb.zmax)
+    if hz:
+        print("  головки шурупов (высота %.1f) под платой экрана: зазор до её деталей %.1f мм" % (WALLHOLE_HEAD_H, min(hz)))
+        ok &= min(hz) >= 0.5 - 1e-6
     print("  пересечения макетов и деталей (мм3, должно быть 0):")
     press = len(S8_PIN_UV) * math.pi * (S8_PIN_D / 2) ** 2 * S8_PIN_PRESS     # S8: натяг штырьков крышки - норма
     membrane = math.pi * (DC_BODY_D / 2) ** 2 * MEMBRANE      # разъём сквозь мембрану заужения (до сверления) - норма
@@ -1432,7 +1640,7 @@ def build_one():
         cq.exporters.export(cp, os.path.join(OUT, PREFIX + "_clips_x4.stl"), tolerance=0.02, angularTolerance=0.1)
         bb = cp.val().BoundingBox()
         print("  %s_clips_x4.stl  %.1f x %.1f x %.1f мм (4 защёлки, печать плашмя)" % (PREFIX, bb.xlen, bb.ylen, bb.zlen))
-    if IS_S8:
+    if IS_TD_S8:
         ep = for_print(ears_print())
         cq.exporters.export(ep, os.path.join(OUT, PREFIX + "_ears_x4.stl"), tolerance=0.02, angularTolerance=0.1)
         bb = ep.val().BoundingBox()

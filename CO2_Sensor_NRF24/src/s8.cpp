@@ -11,6 +11,7 @@
 #include <Arduino.h>
 #include <stdio.h>
 #include <string.h>
+#include "errlog.h"
 
 namespace Co2Sensor {
 
@@ -32,29 +33,33 @@ constexpr uint16_t CRC_INIT      = 0xFFFF;
 constexpr uint16_t CRC_POLY      = 0xA001;                      // Modbus CRC-16 (0x8005, отражённый)
 constexpr uint8_t  BITS_PER_BYTE = 8;
 
-static HardwareSerial& s_uart = Serial1;
-static State    s_state     = State::Idle;
-static Op       s_op        = Op::None;
-static uint8_t  s_req[REQ_LEN];
+static HardwareSerial& s_uart = Serial1;            // порт датчика - UART1
+static State    s_state     = State::Idle;          // ожидание ответа или простой
+static Op       s_op        = Op::None;             // шаг обмена, ожидающий ответа
+static uint8_t  s_req[REQ_LEN];                     // последний запрос (ответ на запись - его эхо)
 static uint8_t  s_respLen   = 0;            // ожидаемая длина ответа
-static uint32_t s_stateTime = 0;
+static uint32_t s_stateTime = 0;                    // момент запроса (millis)
 static uint32_t s_periodMs  = (uint32_t)CO2_POLL_DEF_S * MS_PER_S;   // период опроса, мс (из update)
-static uint32_t s_lastPoll  = 0;
-static uint32_t s_lastValid = 0;
-static bool     s_everValid = false;
-static uint16_t s_co2       = 0;
+static uint32_t s_lastPoll  = 0;                    // последний опрос CO2 (millis)
+static uint32_t s_lastValid = 0;                    // последнее верное значение CO2 (millis)
+static bool     s_everValid = false;                // было хоть одно верное значение
+static uint16_t s_co2       = 0;                    // последнее значение CO2, ppm
 static uint16_t s_status    = 0;        // последний MeterStatus
-static uint32_t s_errors    = 0;
-static uint8_t  s_rx[RESP_MAX];
-static uint8_t  s_rxLen     = 0;
+static uint32_t s_errors    = 0;                    // ошибок обмена всего
+static Co2Err   s_lastErr   = Co2Err::None;         // ошибка последнего опроса (None - удачно)
+static uint8_t  s_excCode   = 0;        // код последнего исключения Modbus
+static uint8_t  s_failRun   = 0;        // неудачных опросов подряд (0 - последний удачный)
+static bool     s_wasValid  = false;    // для записи «нет данных» в журнал при переходе
+static uint8_t  s_rx[RESP_MAX];                     // принятые байты ответа
+static uint8_t  s_rxLen     = 0;                    // сколько байт ответа принято
 
 // ABC
 static AbcState s_abcState  = AbcState::None;
-static Op       s_abcNext   = Op::None;
+static Op       s_abcNext   = Op::None;             // ABC: следующий шаг (None - задачи нет)
 static uint16_t s_abcWrite  = 0;        // значение HR32 к записи (0 - выключить)
 static uint16_t s_period    = 0;        // HR32, ч (0 - ABC приостановлен)
 static uint16_t s_lastOnPeriod = 0;     // последний ненулевой период (для «включить» без нового периода)
-static char     s_abcMsg[ABC_MSG_LEN] = "";
+static char     s_abcMsg[ABC_MSG_LEN] = "";         // ABC: ошибка или примечание
 
 static uint16_t crc16(const uint8_t* d, size_t n)
 {
@@ -146,9 +151,21 @@ static void startOp(Op op, uint32_t now)
     s_state     = State::WaitResponse;
 }
 
+// Ошибка опроса CO2: счётчик, последняя ошибка, журнал
+static void co2Fail(Co2Err e, uint16_t arg)
+{
+    s_errors++;
+    if (s_failRun < UINT8_MAX) s_failRun++;
+    s_lastErr = e;
+    ErrLog::add(ErrDev::Co2, (uint8_t)e, arg);
+}
+
 void update(uint32_t now, uint8_t periodS)
 {
     s_periodMs = (uint32_t)periodS * MS_PER_S;   // настройка меняется на лету
+    const bool valid = isValid(now);
+    if (s_wasValid && !valid) ErrLog::add(ErrDev::Co2, (uint8_t)Co2Err::Stale);
+    s_wasValid = valid;
     switch (s_state) {
     case State::Idle:
         if (s_abcNext != Op::None) { startOp(s_abcNext, now); break; }   // ABC - между опросами CO2
@@ -160,7 +177,7 @@ void update(uint32_t now, uint8_t periodS)
     case State::WaitResponse:
         while (s_rxLen < s_respLen && s_uart.available()) s_rx[s_rxLen++] = (uint8_t)s_uart.read();
         if (s_rxLen >= EXC_LEN && s_rx[1] == (s_req[1] | S8_EXCEPTION_FLAG)) {   // исключение Modbus
-            if (s_op == Op::Co2) s_errors++;
+            if (s_op == Op::Co2) { s_excCode = s_rx[2]; co2Fail(Co2Err::Exception, s_excCode); }
             else {
                 char why[ABC_MSG_LEN];
                 snprintf(why, sizeof(why), "датчик ответил исключением Modbus %u", s_rx[2]);
@@ -169,14 +186,23 @@ void update(uint32_t now, uint8_t periodS)
             s_state = State::Idle;
         } else if (s_rxLen == s_respLen) {
             if (s_op == Op::Co2) {
-                if (!parseCo2())                             s_errors++;
-                else if ((s_status & S8_STATUS_ERRORS) == 0) { s_lastValid = now; s_everValid = true; }
+                if (!parseCo2()) {
+                    co2Fail(Co2Err::BadFrame, 0);
+                } else {
+                    if (s_status) ErrLog::add(ErrDev::Co2, (uint8_t)Co2Err::Sensor, s_status);   // и «вне диапазона»
+                    if ((s_status & S8_STATUS_ERRORS) == 0) {
+                        s_lastValid = now; s_everValid = true; s_lastErr = Co2Err::None; s_failRun = 0;
+                    } else {
+                        s_lastErr = Co2Err::Sensor;
+                        if (s_failRun < UINT8_MAX) s_failRun++;
+                    }
+                }
             } else {
                 abcResponse();
             }
             s_state = State::Idle;                      // ошибка самого датчика - данные не валидны (см. statusText)
         } else if (now - s_stateTime > S8_RESPONSE_TIMEOUT_MS) {
-            if (s_op == Op::Co2) s_errors++;            // нет ответа / неполный кадр
+            if (s_op == Op::Co2) co2Fail(s_rxLen ? Co2Err::BadFrame : Co2Err::NoAnswer, 0);   // неполный кадр / нет ответа
             else abcFail("нет ответа датчика");
             s_state = State::Idle;
         }
@@ -187,14 +213,44 @@ void update(uint32_t now, uint8_t periodS)
 bool     isValid(uint32_t now) { return s_everValid && (now - s_lastValid) < CO2_FAIL_PERIODS * s_periodMs; }
 uint16_t co2()                 { return s_co2; }
 uint32_t errorCount()          { return s_errors; }
+Co2Err   lastError()           { return s_lastErr; }
+uint16_t sensorStatus()        { return s_status; }
+uint8_t  failRun()             { return s_failRun; }
+
+// MeterStatus (IR1): биты DI1..DI7 (Docs/Senseair S8 Modbus.md, IR1), DI8..DI16 - резерв
+void statusBitsText(uint16_t status, char* buf, size_t len)
+{
+    static const char* const BIT_NAMES[] = { "фатальная ошибка", "ошибка регулировки смещения", "ошибка алгоритма",
+                                             "ошибка выхода", "ошибка самодиагностики", "вне диапазона", "ошибка памяти" };
+    size_t pos = (size_t)snprintf(buf, len, "0x%02X", status);
+    const char* sep = ": ";
+    for (uint8_t b = 0; b < sizeof(BIT_NAMES) / sizeof(BIT_NAMES[0]) && pos < len; b++) {
+        if (!(status & (1u << b))) continue;
+        pos += (size_t)snprintf(buf + pos, len - pos, "%s%s", sep, BIT_NAMES[b]);
+        sep = ", ";
+    }
+}
+
+void faultText(char* buf, size_t len)
+{
+    switch (s_lastErr) {
+    case Co2Err::NoAnswer:  snprintf(buf, len, "нет связи"); break;
+    case Co2Err::BadFrame:  snprintf(buf, len, "сбой обмена"); break;
+    case Co2Err::Exception: snprintf(buf, len, "ERR Mdb-%u", s_excCode); break;
+    case Co2Err::Sensor:    snprintf(buf, len, "ERR x%02X", s_status); break;
+    default:                snprintf(buf, len, "нет данных"); break;
+    }
+}
 
 void statusText(char* buf, size_t len)
 {
-    const char* state = isValid(millis()) ? "OK" : "нет данных";
-    if (s_status & S8_STATUS_ERRORS)
-        snprintf(buf, len, "%s, ошибка датчика 0x%02X, ошибок обмена: %lu", state, s_status, (unsigned long)s_errors);
+    char bits[ERRLOG_LINE_LEN / 2], fault[32];
+    statusBitsText(s_status, bits, sizeof(bits));
+    faultText(fault, sizeof(fault));
+    if (isValid(millis()))
+        snprintf(buf, len, "OK, %u ppm, статус %s, ошибок обмена: %lu", s_co2, bits, (unsigned long)s_errors);
     else
-        snprintf(buf, len, "%s, %u ppm, статус 0x%02X, ошибок обмена: %lu", state, s_co2, s_status, (unsigned long)s_errors);
+        snprintf(buf, len, "%s, статус %s, ошибок обмена: %lu", fault, bits, (unsigned long)s_errors);
 }
 
 // ------------------------------------------------------------------ ABC
