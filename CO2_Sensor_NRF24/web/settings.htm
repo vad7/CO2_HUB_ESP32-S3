@@ -5,7 +5,7 @@
 	<title>Настройки</title>
 	<link rel="stylesheet" href="/style.css">
 	<script src="/app.js"></script>
-</head><body data-groups="main,cfg,hist,radio,status,net,abc">
+</head><body data-groups="main,cfg,hist,radio,status,net,abc,tinfo">
 <div id="app_menu"></div>
 	<div class="content">
 		<h2 class="title">Настройки</h2>
@@ -80,8 +80,8 @@
 						<option value='0'>7-сегментный</option>
 						<option value='1'>сглаженный (Montserrat)</option>
 					</select></td></tr>
-				<tr><td class="label">Обновление веб-страниц, мс:</td>
-					<td><input title='0..65535 (0 - не обновлять)' name='cfg_co2_refresh_t' maxlength='5' size='7'></td></tr>
+				<tr><td class="label">Обновление веб-страниц, с:</td>
+					<td><input title='0..3600 (0 - не обновлять)' name='cfg_co2_refresh_t' maxlength='4' size='5'></td></tr>
 			</table>
 			<input type='hidden' name='cfg_co2_save' value='1'>
 			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
@@ -159,8 +159,8 @@
 						<option value="10">10 бит (0,25 °C)</option><option value="9">9 бит (0,5 °C)</option></select>
 					<input type="button" value="Записать в датчик" class="button" id="tres_go"></span></td></tr>
 				<tr><td class="label">Частота шины I2C, кГц:</td>
-					<td><input title='Шина K22, SHT40 и тача. Действует сразу после сохранения. С K22 - не выше 100 кГц (гайд I2C, табл. 5); меньше - для длинных проводов и слабых подтяжек' name='cfg_i2c_khz' maxlength='3' size='4'>
-					&nbsp;10..<span data-var="i2c_khz_max"></span></td></tr>
+					<td><input title='Шина K22, SHT40 и тача. Действует сразу после сохранения. С K22 - не выше 100 кГц (гайд I2C, табл. 5); меньше - для длинных проводов и слабых подтяжек. Частоты, на которых драйвер искажает тайминги шины (например, 50 и 75 кГц), заменяются ближайшей допустимой' name='cfg_i2c_khz' maxlength='3' size='4'>
+					&nbsp;40..<span data-var="i2c_khz_max"></span></td></tr>
 				<tr><td class="label">Размер истории, сутки:</td>
 					<td><input title='1..365. Записей = сутки × 86400 / период рассылки; CO2 - 6 байт на запись, температура - ещё 2 (если датчик выбран). Не помещается в память - выделяется сколько влезет. При смене история очищается' name='cfg_hist_days' id='hist_days' maxlength='3' size='4'>
 					&nbsp;<span id="hist_est"></span></td></tr>
@@ -396,6 +396,9 @@ document.getElementById('tres_go').onclick = function () {
 	App.send({ temp_res: b }, function () { setTimeout(function () { App.load(false, tempInfo); }, 2000); });
 };
 
+/* Опрос - только строки состояния (датчики, сеть, радио, история); настройки, ABC и серийный номер датчика
+   температуры (tinfo) - при загрузке и после сохранения */
+var POLL_GROUPS = 'main,hist,radio,status,net';
 var started = false;
 App.start(function (v) {
 	histEst();
@@ -406,7 +409,7 @@ App.start(function (v) {
 	if (ds.disabled) ds.textContent = 'DS18B20 (нет свободного вывода)';
 	if (started) return;
 	started = true;
-	App.poll(v.cfg_co2_refresh_t, tempInfo);
+	App.poll(v.cfg_co2_refresh_t, null, POLL_GROUPS);
 });
 </script>
 </body></html>

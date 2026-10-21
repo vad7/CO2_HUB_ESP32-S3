@@ -114,9 +114,9 @@ constexpr int16_t  TASK_LINE_H    = 15;    // карточка «Задачи Fr
 // Карточка «Журнал ошибок»: строки 9x15 по TASK_LINE_H, длинные сдвигаются влево (ES - свайпом, TD - бегущей строкой)
 constexpr uint8_t  LOG_ROWS_MAX        = 16;    // строк списка (ES - 12, TD - 7)
 constexpr uint8_t  LOG_ROWS_PER_ENTRY  = 2;     // запись: время (жёлтым) + что случилось (белым)
-constexpr int16_t  LOG_NAV_W           = 36;    // ES: «<» «>» (пункты меню) - левее «Назад», высотой с него; слева остаётся
-                                                //   16 знаков 9x15 - «Зап.: 256  43/43»
-constexpr int16_t  LOG_HDR_LINE_H      = EXIT_BTN_H / 2;   // ES: шапка журнала - 2 строки: название, «Зап.: N  стр/стр»
+constexpr int16_t  LOG_HDR_LINE_H      = EXIT_BTN_H / 2;   // ES, журнал в пункте: шапка - 2 строки: название, «Записей: N»
+static constexpr const char* LOG_HDR_GAP = "  ";                     // между «Записей: N» и «стр/стр»
+constexpr uint16_t LOG_CAP = (uint16_t)(ERRLOG_BYTES / sizeof(ErrEntry));   // записей в журнале максимум (поле шапки TD)
 constexpr int16_t  LOG_SWIPE_PAGE_PX   = 40;    // ES: свайп вверх / вниз длиннее - другая страница
 constexpr uint32_t LOG_DRAG_REDRAW_MS  = 40;    // ES: сдвиг строк пальцем - перерисовка не чаще
 constexpr uint32_t LOG_MARQUEE_STEP_MS = 100;   // TD: бегущая строка - шаг (3 px / 100 мс = 30 px/с, ~3 знака в секунду)
@@ -152,8 +152,9 @@ constexpr uint32_t S_PER_DAY      = 86400;
 static constexpr uint16_t HISTORY_DAYS_STEPS[] = { 1, 2, 3, 5, 7, 10, 14, 21, 30, 45, 60, 90, 120, 180, 270, 365 };
 constexpr uint8_t HISTORY_DAYS_STEPS_COUNT = sizeof(HISTORY_DAYS_STEPS) / sizeof(HISTORY_DAYS_STEPS[0]);
 static_assert(HISTORY_DAYS_STEPS[0] >= HISTORY_DAYS_MIN && HISTORY_DAYS_STEPS[HISTORY_DAYS_STEPS_COUNT - 1] <= HISTORY_DAYS_MAX, "Сроки истории вне диапазона");
-// Частота шины I2C в меню, кГц (в вебе - любое число I2C_KHZ_MIN..MAX); выше I2C_KHZ_MAX (K22 - 100) не предлагаются
-static constexpr uint16_t I2C_KHZ_STEPS[] = { 10, 20, 50, 100, 200, 400 };
+// Частота шины I2C в меню, кГц (в вебе - любое число I2C_KHZ_MIN..MAX, недопустимое - ближайшее, I2cBus::nearestKhz);
+// выше I2C_KHZ_MAX (K22 - 100) не предлагаются. Все шаги - допустимые (I2cBus::khzOk; 50 - нет: LovyanGFX искажает STOP)
+static constexpr uint16_t I2C_KHZ_STEPS[] = { 40, 80, 100, 200, 400 };
 constexpr uint8_t I2C_KHZ_STEPS_COUNT = sizeof(I2C_KHZ_STEPS) / sizeof(I2C_KHZ_STEPS[0]);
 static_assert(I2C_KHZ_STEPS[0] >= I2C_KHZ_MIN && I2C_KHZ_STEPS[I2C_KHZ_STEPS_COUNT - 1] >= I2C_KHZ_MAX, "Шаги частоты I2C");
 constexpr uint32_t BYTES_PER_KB = 1024;
@@ -280,7 +281,7 @@ static Screen   s_screen      = Screen::Main;
 static uint8_t  s_group       = 0;      // группа меню (запоминается между входами)
 static uint8_t  s_pos         = 0;      // пункт внутри группы
 static bool     s_inGroup     = false;  // false - список групп, true - пункты группы
-static bool     s_inItem      = false;  // TD: редактирование пункта (КН Boot / IO14 - «+» / «-»); у ES уровня нет
+static bool     s_inItem      = false;  // TD: редактирование пункта (КН Boot / IO14 - «+» / «-»); ES - только просмотр журнала
 static uint8_t  s_fanSel      = 0;                  // вентилятор, выбранный в меню
 static bool     s_resetArmed  = false;              // двойное «+»: первое нажатие было («Точно?»)
 static bool     s_resetDone   = false;              // «Сброс настроек» выполнен (до выхода из меню)
@@ -316,7 +317,7 @@ static char     s_shownInfo2[128];                  // показанная ни
 static bool     s_btnShown    = false;   // кнопки главного экрана показаны
 static char     s_netShown[4 * INFO_LINE_BYTES];         // показанное состояние карточки «Сеть Wi-Fi» (перерисовка при изменении)
 static uint8_t  s_taskPage    = 0;      // карточка «Задачи FreeRTOS»: страница
-static uint8_t  s_logPage     = 0;      // карточка «Журнал ошибок»: страница
+static uint16_t s_logPage     = 0;      // карточка «Журнал ошибок»: страница (ERRLOG_BYTES велик - страниц больше 255)
 static uint32_t s_logShown    = 0;      //   показанное состояние журнала (ErrLog::changes)
 static int16_t  s_logShift    = 0;      //   сдвиг длинных строк влево, px (каждая - не дальше своего конца)
 static int16_t  s_logShiftMax = 0;      //   наибольший сдвиг на странице, px (конец самой длинной строки - у правого края)
@@ -324,7 +325,7 @@ static int16_t  s_logRowShift[LOG_ROWS_MAX];   // показанный сдви�
 static int16_t  s_logDragFrom = 0;      //   ES: сдвиг в начале свайпа, px
 static bool     s_logPaged    = false;  //   ES: этот свайп уже перелистнул страницу
 static uint32_t s_logMarquee  = 0;      //   TD: бегущая строка - время последнего шага / начала паузы, мс
-static bool     s_staticLog   = false;  // ES: нарисована шапка журнала (без нижнего ряда кнопок)
+static uint8_t  s_staticLog   = 0;      // ES: нарисованные кнопки меню - LogMode (ряд «< - + >», «< Просмотр >», только «Назад»)
 static uint32_t s_taskShown   = 0;      //   показанный снимок (SysInfo::snapshotId)
 static char     s_sysShown[SYS_LINES * SYS_LINE_BYTES + SYS_LINES];   // показанное состояние карточки «Состояние системы»
 
@@ -1416,7 +1417,7 @@ static void itemValue(Item it, char* buf, size_t len)
 }
 
 static uint8_t taskPages();   // карточка «Задачи FreeRTOS» - ниже, у drawTasks()
-static uint8_t logPages();    // карточка «Журнал ошибок» - ниже, у drawErrLog()
+static uint16_t logPages();   // карточка «Журнал ошибок» - ниже, у drawErrLog()
 
 static void changeItem(Item it, int8_t dir)
 {
@@ -1536,8 +1537,8 @@ static void changeItem(Item it, int8_t dir)
         break;
     }
     case Item::ErrLog: {       // так же
-        const uint8_t pages = logPages();
-        s_logPage = (uint8_t)((s_logPage + pages + dir) % pages);
+        const uint16_t pages = logPages();
+        s_logPage = (uint16_t)((s_logPage + pages + dir) % pages);
         break;
     }
     case Item::TouchCal:   // двойное «+»: стереть калибровку и перезапуститься - калибровка при старте
@@ -1583,8 +1584,15 @@ static void changeItem(Item it, int8_t dir)
     }
 }
 
-// ES, «Журнал ошибок»: нижнего ряда кнопок нет (страницы и сдвиг строк - свайпами), «<» «>» - в шапке
-static bool logLayout() { return HAS_TOUCH && curItem() == Item::ErrLog; }
+// ES, «Журнал ошибок»: в пункте - ряд «<» «Просмотр» «>» (вместо «-» «+»), список над ним; «Просмотр» - режим
+// просмотра (s_inItem): список на весь экран, только «Назад», страницы и сдвиг строк - свайпами
+enum LogMode : uint8_t { LOG_MODE_NONE, LOG_MODE_ITEM, LOG_MODE_VIEW };
+static uint8_t logMode()
+{
+    if (!HAS_TOUCH || !s_inGroup || curItem() != Item::ErrLog) return LOG_MODE_NONE;
+    return s_inItem ? LOG_MODE_VIEW : LOG_MODE_ITEM;
+}
+static bool logLayout() { return logMode() == LOG_MODE_VIEW; }
 
 // Кнопки (тач) / подсказка (кнопки): в списке групп - «Выход», в группе - «Назад»
 static void drawMenuStatic()
@@ -1592,12 +1600,16 @@ static void drawMenuStatic()
     lcd.fillScreen(COL_BG);
 #if HAS_TOUCH
     drawButton(lcd.width() - EXIT_BTN_W, EXIT_BTN_Y, EXIT_BTN_W, EXIT_BTN_H, s_inGroup ? "Назад" : "Выход");
-    s_staticLog = logLayout();
-    if (s_staticLog) return;   // «<» «>» рисует drawMenuItem() (шапка перерисовывается)
+    s_staticLog = logMode();
+    if (s_staticLog == LOG_MODE_VIEW) return;   // просмотр журнала - без нижнего ряда
     int16_t w4 = lcd.width() / 4, y = lcd.height() - BTN_ROW_H;
     drawButton(0,          y, w4, BTN_ROW_H, "<");
-    drawButton(w4,         y, w4, BTN_ROW_H, "-");
-    drawButton(w4 * 2,     y, w4, BTN_ROW_H, "+");
+    if (s_staticLog == LOG_MODE_ITEM) {
+        drawButton(w4,     y, w4 * 2, BTN_ROW_H, "Просмотр");
+    } else {
+        drawButton(w4,     y, w4, BTN_ROW_H, "-");
+        drawButton(w4 * 2, y, w4, BTN_ROW_H, "+");
+    }
     drawButton(w4 * 3,     y, lcd.width() - w4 * 3, BTN_ROW_H, ">");
 #else
     // Кн.2 слева, Кн.1 справа - как кнопки ES; у «ДН:а/б» - сначала Кн.2 (IO14), потом Кн.1 (Boot)
@@ -1913,11 +1925,11 @@ static void drawTasks(bool force)
     if (force) lcd.fillRect(0, top + (per + 1) * TASK_LINE_H, lcd.width(), bottom - top - (per + 1) * TASK_LINE_H, COL_BG);
 }
 
-// «Журнал ошибок»: «Зап.: N  стр/стр» - в шапке (ES - второй строкой под названием, TD - справа от него),
-// список - на всю карточку (от menuTop, ES - до низа экрана: нижнего ряда кнопок нет), строки 9x15 по TASK_LINE_H.
+// «Журнал ошибок»: «Записей: N  стр/стр» - в шапке (drawLogHeader), список - на всю карточку (от menuTop, ES в
+// просмотре - до низа экрана: нижнего ряда кнопок нет), строки 9x15 по TASK_LINE_H.
 // Запись - две строки: время (timeRange, жёлтым), под ним - что случилось (белым). Новые - сверху.
 // Длинная строка сдвигается влево на s_logShift, но не дальше своего конца; короткие стоят на месте.
-static int16_t logBottom() { return HAS_TOUCH ? lcd.height() : menuBottom(); }
+static int16_t logBottom() { return logLayout() ? lcd.height() : menuBottom(); }
 static uint8_t logRows()
 {
     const int16_t n = (logBottom() - menuTop()) / TASK_LINE_H;
@@ -1925,30 +1937,41 @@ static uint8_t logRows()
 }
 static uint8_t logPerPage() { uint8_t n = (uint8_t)(logRows() / LOG_ROWS_PER_ENTRY); return n ? n : 1; }
 
-static uint8_t logPages()
+static uint16_t logPages()
 {
     const uint16_t n = ErrLog::count(), per = logPerPage();
-    return n ? (uint8_t)((n + per - 1) / per) : 1;
+    return n ? (uint16_t)((n + per - 1) / per) : 1;
 }
 
-// «Зап.: N» (серым) и «стр/стр» (ярким) через 2 пробела
-static void drawLogHeader(uint8_t pages)
+// «Записей: N» (серым) и «стр/стр» (ярким) через LOG_HDR_GAP. ES в пункте - второй строкой шапки под названием, без
+// страницы (листать - в просмотре); ES в просмотре - вместо названия, по центру высоты «Назад»; TD - справа от названия
+static void drawLogHeader(uint16_t pages)
 {
-    char cnt[SYS_LINE_BYTES], pg[SYS_LINE_BYTES];
-    if (ErrLog::count()) snprintf(cnt, sizeof(cnt), "Зап.: %u  ", ErrLog::count());
-    else                 strlcpy(cnt, "Ошибок нет  ", sizeof(cnt));
-    snprintf(pg, sizeof(pg), "%u/%u", s_logPage + 1, pages);
+    const uint8_t mode = logMode();
+    const bool paged = mode != LOG_MODE_ITEM;
+    char cnt[SYS_LINE_BYTES], pg[SYS_LINE_BYTES] = "";
+    if (ErrLog::count()) snprintf(cnt, sizeof(cnt), "Записей: %u%s", ErrLog::count(), paged ? LOG_HDR_GAP : "");
+    else                 snprintf(cnt, sizeof(cnt), "Ошибок нет%s", paged ? LOG_HDR_GAP : "");
+    if (paged) snprintf(pg, sizeof(pg), "%u/%u", s_logPage + 1, pages);
     lcd.setFont(FONT_SMALL);
     const int16_t cw = (int16_t)lcd.textWidth(cnt), pw = (int16_t)lcd.textWidth(pg);
-#if HAS_TOUCH
-    const int16_t x = MARGIN, cy = EXIT_BTN_Y + LOG_HDR_LINE_H + LOG_HDR_LINE_H / 2;
-    lcd.fillRect(0, EXIT_BTN_Y + LOG_HDR_LINE_H, lcd.width() - EXIT_BTN_W - 2 * LOG_NAV_W, LOG_HDR_LINE_H, COL_BG);
-#else
-    // поле - под самую длинную надпись («Зап.: 256  43/43»), справа; название пункта слева короче
-    const int16_t x = lcd.width() - MARGIN - pw - cw, cy = TOP_INSET + (menuHdrH() - TOP_INSET) / 2;
-    const int16_t fx = lcd.width() - MARGIN - (int16_t)lcd.textWidth("Зап.: 000  00/00");
-    lcd.fillRect(fx, 0, lcd.width() - fx, menuHdrH(), COL_BG);
-#endif
+    int16_t x = MARGIN, cy;
+    if (mode == LOG_MODE_ITEM) {
+        cy = EXIT_BTN_Y + LOG_HDR_LINE_H + LOG_HDR_LINE_H / 2;
+        lcd.fillRect(0, EXIT_BTN_Y + LOG_HDR_LINE_H, lcd.width() - EXIT_BTN_W, LOG_HDR_LINE_H, COL_BG);
+    } else if (mode == LOG_MODE_VIEW) {
+        cy = EXIT_BTN_Y + EXIT_BTN_H / 2;
+        lcd.fillRect(0, 0, lcd.width() - EXIT_BTN_W, menuHdrH(), COL_BG);
+    } else {             // TD: справа в шапке, поле - под самую длинную надпись
+        const int16_t right = lcd.width() - MARGIN;
+        x = right - pw - cw;
+        cy = TOP_INSET + (menuHdrH() - TOP_INSET) / 2;
+        char widest[SYS_LINE_BYTES];   // поле - под надпись полного журнала (LOG_CAP записей, все страницы)
+        const unsigned maxPages = (LOG_CAP + logPerPage() - 1) / logPerPage();
+        snprintf(widest, sizeof(widest), "Записей: %u%s%u/%u", (unsigned)LOG_CAP, LOG_HDR_GAP, maxPages, maxPages);
+        const int16_t fx = right - (int16_t)lcd.textWidth(widest);
+        lcd.fillRect(fx, 0, right + MARGIN - fx, menuHdrH(), COL_BG);
+    }
     lcd.setTextDatum(lgfx::middle_left);
     lcd.setTextColor(COL_DIM, COL_BG);
     lcd.drawString(cnt, x, cy);
@@ -2000,7 +2023,7 @@ static void drawErrLog(bool force)
 {
     if (!force && ErrLog::changes() == s_logShown) return;
     s_logShown = ErrLog::changes();
-    const uint8_t pages = logPages();
+    const uint16_t pages = logPages();
     if (s_logPage >= pages) s_logPage = pages - 1;
     s_logShift = 0;
     s_logMarquee = millis();
@@ -2026,7 +2049,7 @@ static void logDrag(int32_t x, int32_t y, uint32_t now)
         s_logPaged = true;   // одна страница за свайп, без перехода по кругу
         const int16_t p = (int16_t)s_logPage + (dy < 0 ? 1 : -1);
         if (p < 0 || p >= logPages()) return;
-        s_logPage = (uint8_t)p;
+        s_logPage = (uint16_t)p;
         drawErrLog(true);
         return;
     }
@@ -2061,21 +2084,17 @@ static void drawMenuItem()
     else if (isFanItem(it)) snprintf(buf, sizeof(buf), "%u/%u  В%u: %s", s_pos + 1, g.count, s_fanSel + 1, Cfg::fans[s_fanSel].name);
     else               snprintf(buf, sizeof(buf), "%s %u/%u", g.name, s_pos + 1, g.count);
 #if HAS_TOUCH
-    if (logLayout() != s_staticLog) drawMenuStatic();   // вход в журнал / выход из него: нижний ряд кнопок
+    if (logMode() != s_staticLog) drawMenuStatic();      // журнал: ряд «< Просмотр >» / просмотр без ряда / обычный ряд
 #endif
-    const bool logHdr = logLayout();                     // ES, журнал: название - в верхней половине шапки
-    const int16_t navW = logHdr ? 2 * LOG_NAV_W : 0;
-    lcd.fillRect(0, 0, lcd.width() - (HAS_TOUCH ? EXIT_BTN_W : 0), menuHdrH(), COL_BG);
-    if (logHdr) {
-        drawButton(lcd.width() - EXIT_BTN_W - navW, EXIT_BTN_Y, LOG_NAV_W, EXIT_BTN_H, "<");
-        drawButton(lcd.width() - EXIT_BTN_W - LOG_NAV_W, EXIT_BTN_Y, LOG_NAV_W, EXIT_BTN_H, ">");
-    }
+    const bool logHdr = logMode() == LOG_MODE_ITEM;      // ES, журнал в пункте: название - в верхней половине шапки
     lcd.setFont(FONT_SMALL);
-    trimToWidth(buf, lcd.width() - (HAS_TOUCH ? EXIT_BTN_W : 0) - navW - 2 * MARGIN);   // длинное имя вентилятора - не под «Назад»
+    lcd.fillRect(0, 0, lcd.width() - (HAS_TOUCH ? EXIT_BTN_W : 0), menuHdrH(), COL_BG);
+    trimToWidth(buf, lcd.width() - (HAS_TOUCH ? EXIT_BTN_W : 0) - 2 * MARGIN);   // длинное имя вентилятора - не под «Назад»
     lcd.setTextDatum(lgfx::middle_left);
     lcd.setTextColor(COL_HEADER, COL_BG);
-    lcd.drawString(buf, MARGIN, logHdr ? EXIT_BTN_Y + LOG_HDR_LINE_H / 2           // журнал - верхняя строка шапки
-                                       : TOP_INSET + (menuHdrH() - TOP_INSET) / 2);   // по центру «Назад» / «Выход»
+    if (!logLayout())                                    // ES, просмотр журнала: вместо названия - «Записей: N  стр/стр»
+        lcd.drawString(buf, MARGIN, logHdr ? EXIT_BTN_Y + LOG_HDR_LINE_H / 2           // журнал - верхняя строка шапки
+                                           : TOP_INSET + (menuHdrH() - TOP_INSET) / 2);   // по центру «Назад» / «Выход»
 
     const int16_t top = menuTop(), valueTop = menuValueTop(), bottom = menuBottom();
     if (!s_inGroup) {   // карточка группы: подсказка + название группы крупно
@@ -2215,11 +2234,13 @@ static Key touchZone(int32_t x, int32_t y)
         if (s_btnShown && y < mainExitY() + BTN_ROW_H && x >= w - EXIT_BTN_W) return Key::Hide;   // «Выход» сверху справа
         return Key::ShowButtons;
     }
-    if (s_screen == Screen::Menu && logLayout()) {   // журнал: «Назад», «<» «>» в шапке, остальное - свайп
+    if (s_screen == Screen::Menu && logLayout()) {   // просмотр журнала: «Назад», остальное - свайп
         if (y < EXIT_BTN_Y + EXIT_BTN_H && x >= w - EXIT_BTN_W) return Key::Exit;
-        const int32_t nx = w - EXIT_BTN_W - 2 * LOG_NAV_W;
-        if (y < EXIT_BTN_Y + EXIT_BTN_H && x >= nx) return x < nx + LOG_NAV_W ? Key::Prev : Key::Next;
         return Key::None;
+    }
+    if (s_screen == Screen::Menu && logMode() == LOG_MODE_ITEM && y >= lcd.height() - BTN_ROW_H) {   // «<» «Просмотр» «>»
+        const int32_t w4 = w / 4;
+        return x < w4 ? Key::Prev : x < 3 * w4 ? Key::Enter : Key::Next;
     }
     if (y >= lcd.height() - BTN_ROW_H) {
         if (s_screen == Screen::History) {
@@ -2358,7 +2379,11 @@ static void handleKey(Key k)
         switch (k) {
         case Key::Dec:  changeItem(curItem(), -1); break;
         case Key::Inc:  changeItem(curItem(), +1); break;
-        case Key::Exit: s_inItem = false; s_resetArmed = false; drawMenuStatic(); break;   // ДН IO14 - к пунктам
+        case Key::Exit:                                       // ДН IO14 / ES: «Назад» из просмотра журнала - к пунктам
+            s_inItem = false; s_resetArmed = false;
+            if (curItem() == Item::ErrLog) s_logPage = 0;     // в пункте - новые записи
+            drawMenuStatic();
+            break;
         default: return;
         }
         drawMenuItem();

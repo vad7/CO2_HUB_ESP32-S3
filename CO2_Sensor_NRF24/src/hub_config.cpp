@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
+#include "i2c_bus.h"
 
 namespace Cfg {
 
@@ -46,7 +47,7 @@ static void defaultsCo2()
 {
     memset(&co2, 0, sizeof(co2));
     memcpy(co2.thresholds, CO2_THRESHOLDS_DEF, sizeof(co2.thresholds));
-    co2.pageRefreshMs   = WEB_REFRESH_DEF_MS;
+    co2.pageRefreshS    = WEB_REFRESH_DEF_S;   // старый блок NVS (без поля) - умолчание: загрузка поверх умолчаний
     co2.historyDays     = HISTORY_DAYS_DEF;
     co2.transmitPeriodS = TRANSMIT_PERIOD_DEF_S;
     co2.brightDayPct    = BRIGHT_DAY_DEF_PCT;
@@ -140,6 +141,8 @@ void sanitize()
     if (co2.debug > 1) co2.debug = 0;
     if (co2.co2PollS < CO2_POLL_MIN_S || co2.co2PollS > CO2_POLL_MAX_S) co2.co2PollS = CO2_POLL_DEF_S;
     if (co2.i2cKhz < I2C_KHZ_MIN || co2.i2cKhz > I2C_KHZ_MAX) co2.i2cKhz = I2C_KHZ_DEF;   // и после смены K22 / S8
+    co2.i2cKhz = I2cBus::nearestKhz(co2.i2cKhz);
+    if (co2.pageRefreshS > WEB_REFRESH_MAX_S) co2.pageRefreshS = WEB_REFRESH_MAX_S;   // частоты, на которых LovyanGFX искажает тайминги, - ближайшая годная
 }
 
 // ------------------------------------------------------------------------------------------

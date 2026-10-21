@@ -291,19 +291,26 @@ bool setTimeManual(time_t utc)
 
 uint32_t uptimeS() { return (uint32_t)(esp_timer_get_time() / US_PER_S); }   // 64-бит мкс: без переполнения millis()
 
-// Отсчёт назад от текущих часов: событие было (аптайм сейчас − аптайм события) секунд назад.
-// Корректировки часов (NTP, вручную) сразу видны во всей истории - отслеживать их не нужно.
+// Время включения по текущим часам, мкс UTC: часы минус аптайм - в микросекундах. Разность целых секунд
+// (time() - uptimeS()) округляла оба слагаемых вниз независимо: время события скакало на 1 с между запросами.
+static int64_t bootEpochUs()
+{
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return (int64_t)tv.tv_sec * US_PER_S + tv.tv_usec - esp_timer_get_time();
+}
+
+// Время включения + аптайм события. Корректировки часов (NTP, вручную) сразу видны во всей истории -
+// отслеживать их не нужно.
 time_t epochFromUptime(uint32_t eventUptimeS)
 {
     if (eventUptimeS == 0 || !timeValid()) return 0;
-    const uint32_t up  = uptimeS();
-    const uint32_t age = up > eventUptimeS ? up - eventUptimeS : 0;
-    return time(nullptr) - (time_t)age;
+    return (time_t)((bootEpochUs() + (int64_t)eventUptimeS * US_PER_S) / US_PER_S);
 }
 
 time_t bootEpoch()
 {
-    return timeValid() ? time(nullptr) - (time_t)uptimeS() : 0;
+    return timeValid() ? (time_t)(bootEpochUs() / US_PER_S) : 0;
 }
 
 void ipString(char* buf, size_t len)

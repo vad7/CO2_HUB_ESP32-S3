@@ -20,6 +20,7 @@ constexpr uint32_t S_PER_MIN    = 60;
 constexpr uint32_t S_PER_HOUR   = 3600;
 constexpr uint32_t S_PER_DAY    = 86400;
 static_assert(CAP >= ERRLOG_MERGE_DEPTH, "журнал меньше глубины слияния");
+static_assert(ERRLOG_BYTES / sizeof(ErrEntry) <= UINT16_MAX, "индексы и счётчик записей - uint16_t");
 
 static ErrEntry s_log[CAP];                         // кольцевой буфер записей
 static uint16_t s_head    = 0;      // куда пишется следующая запись

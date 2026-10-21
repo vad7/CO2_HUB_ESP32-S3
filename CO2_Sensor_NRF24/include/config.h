@@ -31,6 +31,12 @@
 #error "CO2_SENSOR: CO2_SENSOR_K22 или CO2_SENSOR_S8"
 #endif
 
+#define FW_VERSION               "2.0.1"                // прошивка датчика-хаба (1.x - ESP8266 хаб)
+#define FW_ID                    FW_BOARD_ID "_" FW_SENSOR_ID   // сборка: плата_датчик (es3c28p_k22, tdisplay_s3_s8 …)
+#define FW_ID_MARKER             "CO2HUB_FWID="         // метка в образе: Scripts/copy_firmware.py берёт FW_ID из .bin
+#define FW_AUTHOR                "Вадим (vad7@yahoo.com)"   // меню «О программе», веб «Система»
+// Дата сборки FW_BUILD_DATE - в build_info.h (генерируется Scripts/build_info.py при каждой сборке)
+
 // =====================================================================================
 // Датчик температуры (необязательный) - выбирается в настройках (меню / веб): нет, DS18B20 или SHT40.
 //   DS18B20 (1-Wire): DQ - вывод TEMP_PIN_DQ (ниже, у платы; -1 - вывода нет, DS18B20 не предлагается)
@@ -178,13 +184,29 @@ constexpr uint8_t  K22_I2C_ADDR          = 0x68;    // адрес по умол�
 
 // --- Шина I2C (K22, SHT40, тач FT6336G ES3C28P): частота - настройка co2.i2cKhz (I2cBus::hz()) ---
 constexpr uint16_t I2C_KHZ_DEF           = 100;     // по умолчанию
-constexpr uint16_t I2C_KHZ_MIN           = 10;      // ниже - для длинных проводов / слабых подтяжек
+constexpr uint16_t I2C_KHZ_MIN           = 40;      // ниже LovyanGFX переполняет периоды SCL (9-битные поля, см. ниже)
 #if CO2_SENSOR == CO2_SENSOR_K22
 constexpr uint16_t I2C_KHZ_MAX           = 100;     // K22: fSCL 0..100 кГц (гайд I2C, табл. 5)
 #else
 constexpr uint16_t I2C_KHZ_MAX           = 400;     // без K22: Fast mode (драйвер тача LovyanGFX - 400 кГц по умолчанию)
 #endif
 constexpr uint32_t HZ_PER_KHZ            = 1000;
+// Допустимые частоты (I2cBus::khzOk): LovyanGFX (lgfx::i2c, platforms/esp32/common.inl, beginTransaction) считает
+// cycle = I2C_SRC_HZ / (f + 1) + 1 и пишет задержки START / STOP как cycle и 2 * cycle в 9-битные поля ESP32-S3
+// (scl_start_hold_time, scl_stop_hold_time и др., soc/esp32s3/.../i2c_struct.h) без ограничения - старшие биты
+// теряются: на 50 кГц пауза после STOP 1,6 мкс, на 75 кГц - 0,55 мкс (K22 нужно 4,7) -> ошибки обмена.
+constexpr uint32_t I2C_SRC_HZ            = 40000000;  // тактирование I2C ESP32-S3 - XTAL 40 МГц (getSourceClock LovyanGFX)
+constexpr uint32_t I2C_LGFX_CYCLE_MIN    = 35;      // MIN_I2C_CYCLE LovyanGFX
+constexpr uint32_t I2C_LGFX_CYCLE_CLAMP  = 1023;    // cycle для задержек START / STOP ограничен 10 битами (LovyanGFX)
+constexpr uint32_t I2C_LGFX_HIGH_OFFSET  = 9;       // cycle - период SCL: 8 (фильтр вкл., cycle > 64) + 1 (LovyanGFX)
+constexpr uint32_t I2C_LGFX_HIGH_MIN     = 18;      // минимум высокого полупериода SCL, тактов (LovyanGFX)
+constexpr uint8_t  I2C_LGFX_WAIT_SHIFT   = 2;       // scl_wait_high = высокий полупериод >> 2 (LovyanGFX, ESP32-S3)
+constexpr uint32_t I2C_REG_MAX           = 511;     // 9-битные поля таймингов I2C ESP32-S3, тактов
+constexpr uint32_t I2C_REG_WAIT_MAX      = 127;     // 7-битное поле scl_wait_high_period, тактов
+constexpr uint16_t I2C_STD_MAX_KHZ       = 100;     // Standard mode: до 100 кГц - проверка по таймингам табл. 5 K22
+constexpr uint32_t I2C_T_START_NS        = 4700;    // tSU;STA 4,7 мкс (tHD;STA 4,0) - гайд K22, табл. 5
+constexpr uint32_t I2C_T_STOP_NS         = 4700;    // tBUF 4,7 мкс (tSU;STO 4,0) - гайд K22, табл. 5
+constexpr uint32_t NS_PER_S              = 1000000000;
 // Команда - старший полубайт 1-го байта запроса, младший - число байт данных (табл. 7)
 constexpr uint8_t  K22_CMD_WRITE_RAM     = 0x1;
 constexpr uint8_t  K22_CMD_READ_RAM      = 0x2;
@@ -302,11 +324,6 @@ constexpr size_t   HISTORY_PSRAM_RESERVE = 64 * 1024;   // оставить св
 constexpr size_t   HISTORY_RAM_RESERVE   = 96 * 1024;   // без PSRAM: оставить во внутренней RAM (Wi-Fi, веб)
 constexpr uint32_t S_PER_DAY_CFG         = 86400;
 
-#define FW_VERSION               "2.0.0"                // прошивка датчика-хаба (1.x - ESP8266 хаб)
-#define FW_ID                    FW_BOARD_ID "_" FW_SENSOR_ID   // сборка: плата_датчик (es3c28p_k22, tdisplay_s3_s8 …)
-#define FW_ID_MARKER             "CO2HUB_FWID="         // метка в образе: Scripts/copy_firmware.py берёт FW_ID из .bin
-#define FW_AUTHOR                "Вадим (vad7@yahoo.com)"   // меню «О программе», веб «Система»
-// Дата сборки FW_BUILD_DATE - в build_info.h (генерируется Scripts/build_info.py при каждой сборке)
 
 // --- Время / сеть ---
 constexpr time_t   TIME_VALID_EPOCH      = 1700000000;   // время до этой даты = NTP ещё не синхронизирован
@@ -332,7 +349,8 @@ constexpr uint16_t NTP_PERIOD_HI_MIN     = 10080;   //   неделя
 constexpr uint32_t WIFI_RETRY_MS         = 60000;   // поиск роутера, пока связи нет (не при клиентах на AP)
 constexpr uint32_t WIFI_AP_CHECK_MS      = 1000;    // проверка: подключён ли кто-то к точке доступа
 constexpr uint32_t MS_PER_MIN            = 60000;
-constexpr uint16_t WEB_REFRESH_DEF_MS    = 5000;    // page_refresh_time хаба
+constexpr uint16_t WEB_REFRESH_DEF_S     = 5;       // обновление открытых веб-страниц, с (page_refresh_time хаба)
+constexpr uint16_t WEB_REFRESH_MAX_S     = 3600;    // не реже раза в час (0 - не обновлять)
 constexpr size_t   WEB_POST_MAX          = 2048;
 constexpr size_t   WEB_OUT_BUF           = 1024;
 constexpr size_t   WEB_JSON_MAX          = 2560;    // одна группа /api/vars; худшая - cpu (32 задачи) 2,25 КБ: Scripts/web_vars_size.py

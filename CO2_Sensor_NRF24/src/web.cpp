@@ -36,6 +36,7 @@
 #include "sys_info.h"
 #include "radio.h"
 #include "errlog.h"
+#include "i2c_bus.h"
 #include "web_files.h"
 
 namespace Web {
@@ -286,7 +287,7 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "cfg_co2_night_start_wd"))   { co2.nightStartWd = parseHhmm(val, co2.nightStartWd); c.recalcAll = true; }
     else if (!strcmp(name, "cfg_co2_night_end_wd"))     { co2.nightEndWd   = parseHhmm(val, co2.nightEndWd); c.recalcAll = true; }
     else if (!strcmp(name, "cfg_co2_night_max"))        { co2.nightMaxSpeed = (uint8_t)clampL(v, 0, FAN_SPEED_MAX); c.recalcAll = true; }
-    else if (!strcmp(name, "cfg_co2_refresh_t"))        co2.pageRefreshMs = (uint16_t)clampL(v, 0, UINT16_MAX);
+    else if (!strcmp(name, "cfg_co2_refresh_t"))        co2.pageRefreshS = (uint16_t)clampL(v, 0, WEB_REFRESH_MAX_S);
     else if (!strcmp(name, "cfg_co2_bright_day"))       { co2.brightDayPct   = (uint8_t)clampL(v, BRIGHT_MIN_PCT, BRIGHT_MAX_PCT); c.saveCo2 = true; }
     else if (!strcmp(name, "cfg_co2_bright_night"))     { co2.brightNightPct = (uint8_t)clampL(v, BRIGHT_MIN_PCT, BRIGHT_MAX_PCT); c.saveCo2 = true; }
     else if (!strcmp(name, "cfg_digits_font"))          { co2.digitsFont = (uint8_t)clampL(v, 0, DIGITS_FONT_COUNT - 1); c.saveCo2 = true; }
@@ -298,7 +299,7 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "cfg_co2_passive_ch"))       co2.passiveChannel = (uint8_t)clampL(v, 0, RF_CHANNEL_MAX);
     else if (!strcmp(name, "cfg_co2_radio_reset"))      co2.radioResetS = (uint16_t)clampL(v, 0, UINT16_MAX);
     else if (!strcmp(name, "cfg_co2_poll"))             co2.co2PollS = (uint8_t)clampL(v, CO2_POLL_MIN_S, CO2_POLL_MAX_S);
-    else if (!strcmp(name, "cfg_i2c_khz"))              co2.i2cKhz = (uint16_t)clampL(v, I2C_KHZ_MIN, I2C_KHZ_MAX);   // действует сразу
+    else if (!strcmp(name, "cfg_i2c_khz"))              co2.i2cKhz = I2cBus::nearestKhz((uint16_t)clampL(v, I2C_KHZ_MIN, I2C_KHZ_MAX));   // действует сразу
     else if (!strcmp(name, "cfg_temp_period"))          co2.tempPeriodS = (uint8_t)clampL(v, TEMP_PERIOD_MIN_S, TEMP_PERIOD_MAX_S);
     else if (!strcmp(name, "cfg_temp_sensor"))          co2.tempSensor  = (uint8_t)clampL(v, 0, TEMP_SENSOR_COUNT - 1);   // DS18B20 без вывода - sanitize() -> нет
     else if (!strcmp(name, "cfg_co2_save"))             c.saveCo2  = v == 1;
@@ -414,7 +415,7 @@ static void varsSys(Json& j, const ReqCtx&)
     if (!Net::timeValid())                                  j.str("sntp_status", "не установлено");
     else if (Net::timeSource() == Net::TimeSource::Manual)  j.str("sntp_status", "установлено вручную");
     else                                                    j.str("sntp_status", "NTP");
-    j.unum("cfg_co2_refresh_t", Cfg::co2.pageRefreshMs);
+    j.unum("cfg_co2_refresh_t", Cfg::co2.pageRefreshS);   // с
 }
 
 // Главная: CO2, ночь, общая поправка, температура
@@ -560,12 +561,19 @@ static void varsStatus(Json& j, const ReqCtx&)
     j.str ("co2_status",  tmp);
     TempSensor::statusText(tmp, sizeof(tmp));
     j.str ("temp_status", tmp);
-    TempSensor::serialText(tmp, sizeof(tmp));
-    j.str ("temp_serial", tmp);
-    j.unum("temp_res",    TempSensor::resolutionBits());   // DS18B20, бит; 0 - не DS18B20 / ещё не читали
     char regs[REPORT_LEN];
     Radio::verifyRegisters(regs, sizeof(regs));            // сверка - при запросе (под CfgLock, как и loop)
     j.str ("radio_regs",  regs);
+}
+
+// Датчик температуры: серийный номер и разрешение - не меняются, страница настроек читает их при загрузке
+// и после записи разрешения, не при каждом опросе
+static void varsTempInfo(Json& j, const ReqCtx&)
+{
+    char tmp[LINE_MAX_LEN];
+    TempSensor::serialText(tmp, sizeof(tmp));
+    j.str ("temp_serial", tmp);
+    j.unum("temp_res",    TempSensor::resolutionBits());   // DS18B20, бит; 0 - не DS18B20 / ещё не читали
 }
 
 // ABC датчика CO2: abc_state - 0 не читали, 1 идёт обмен, 2 готово, 3 ошибка (Co2Sensor::AbcState)
@@ -647,6 +655,7 @@ static const VarGroup VAR_GROUPS[] = {
     { "abc",    varsAbc    },
     { "net",    varsNet    },
     { "fan",    varsFan    },
+    { "tinfo",  varsTempInfo },
 };
 constexpr uint8_t VAR_GROUP_COUNT = sizeof(VAR_GROUPS) / sizeof(VAR_GROUPS[0]);
 static_assert(VAR_GROUP_COUNT <= 16, "маска групп - uint16_t");
@@ -694,21 +703,35 @@ static void sendHistory(httpd_req_t* req)
     o.end();
 }
 
-// errlog.txt: журнал ошибок, новые первыми, по строке на запись (ErrLog::format); пусто - «Ошибок нет»
+// errlog.txt: журнал ошибок, новые первыми, по строке на запись (ErrLog::format); пусто - «Ошибок нет».
+// Строки набираются в s_json пачкой под одним CfgLock, отправляются без него: loop() держит замок весь проход
+// (экран, датчики), замок на каждую запись растягивал ответ на секунды (сотни записей - сотни проходов loop()).
+constexpr size_t ERRLOG_WEB_LINE = ERRLOG_LINE_LEN * 2;   // строка журнала: время повторов + расшифровка, байт
+static_assert(sizeof(s_json) >= ERRLOG_WEB_LINE * 2, "s_json - пачка строк журнала");
 static void sendErrLog(httpd_req_t* req)
 {
     httpd_resp_set_type(req, "text/plain; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", CACHE_NONE);
-    Out o(req);
-    char line[ERRLOG_LINE_LEN * 2];
-    for (uint16_t i = 0;; i++) {
-        bool ok;
-        { CfgLock l; ErrEntry e; ok = ErrLog::get(i, e); if (ok) ErrLog::format(e, line, sizeof(line)); }
-        if (!ok) { if (i == 0) o.printf("Ошибок нет\r\n"); break; }
-        o.write(line, strlen(line));                       // длиннее строки printf (LINE_MAX_LEN)
-        o.write("\r\n", 2);
+    static const char EOL[] = "\r\n";
+    uint16_t i = 0;
+    bool more = true;
+    while (more) {
+        size_t n = 0;
+        {
+            CfgLock l;
+            ErrEntry e;
+            while (n + ERRLOG_WEB_LINE <= sizeof(s_json) && (more = ErrLog::get(i, e))) {
+                ErrLog::format(e, s_json + n, ERRLOG_WEB_LINE - (sizeof(EOL) - 1));
+                n += strlen(s_json + n);
+                memcpy(s_json + n, EOL, sizeof(EOL) - 1);
+                n += sizeof(EOL) - 1;
+                i++;
+            }
+        }
+        if (i == 0) { httpd_resp_sendstr_chunk(req, "Ошибок нет\r\n"); break; }
+        if (n && httpd_resp_send_chunk(req, s_json, n) != ESP_OK) return;
     }
-    o.end();
+    httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 static bool readBody(httpd_req_t* req)

@@ -70,7 +70,7 @@ struct CfgCo2 {
     uint8_t  fans;                        // количество вентиляторов
     uint8_t  nightMaxSpeed;               // макс. скорость ночью
     char     csvDelimiterUnused;          // был разделитель history.csv (с 2026-10-09 - всегда HISTORY_CSV_SEP); место в NVS
-    uint16_t pageRefreshMs;               // период обновления веб-страницы
+    uint16_t pageRefreshMsUnused;         // был период обновления веб-страниц, мс (с 2026-10-21 - pageRefreshS); место в NVS
     uint16_t transmitPeriodS;             // период рассылки вентиляторам (новое: у хаба - по приходу пакета датчика)
     uint8_t  brightDayPct;                // яркость подсветки экрана днём, % (0 в NVS = не задано)
     uint8_t  brightNightPct;              // яркость подсветки ночью (по ночному режиму), %
@@ -84,6 +84,7 @@ struct CfgCo2 {
     uint8_t  debug;                       // 1 - отладка: диагностика в Serial (касания, замер loop()); по умолч. 0
     uint8_t  co2PollS;                    // период опроса датчика CO2, с (0 в NVS = не задано)
     uint16_t i2cKhz;                      // частота шины I2C (K22, SHT40, тач), кГц (0 в NVS = не задано)
+    uint16_t pageRefreshS;                // период обновления открытых веб-страниц, с (0 - не обновлять)
     // новые поля - сюда
     CFG_END_MARKER;
 };

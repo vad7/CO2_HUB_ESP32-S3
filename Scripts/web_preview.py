@@ -33,7 +33,7 @@ MOCK = {
     "history_count": 1440, "cfg_co2_fans": len(FANS), "cfg_co2_fans_speed_th": "500,600,700,800,900,1000",
     "cfg_co2_fans_speed_delta": 50, "cfg_co2_period": 20, "cfg_co2_night_start": "22:00",
     "cfg_co2_night_end": "06:00", "cfg_co2_night_start_wd": "23:00", "cfg_co2_night_end_wd": "08:00",
-    "cfg_co2_night_max": 2, "cfg_co2_refresh_t": 5000, "cfg_co2_bright_day": 80,
+    "cfg_co2_night_max": 2, "cfg_co2_refresh_t": 5, "cfg_co2_bright_day": 80,
     "cfg_co2_bright_night": 10, "cfg_co2_radio_mode": 0, "cfg_co2_passive_ch": 120, "cfg_co2_radio_reset": 3600, "radio_rx_count": 0, "temp_en": 1, "temp_ds_ok": 1, "cfg_temp_sensor": 2, "temp_c": "23.4", "temp_rh": 45, "temp_status": "23.4 °C, 45 % (SHT40, I2C 0x44, ошибок 0)", "temp_serial": "28-0316A2794AFF", "temp_res": 11, "cfg_temp_period": 10, "cfg_co2_poll": 2, "cfg_i2c_khz": 100, "i2c_khz_max": 100, "cfg_hist_days": 7, "cfg_digits_font": 1, "hist_cap": 30240, "hist_wanted": 30240, "hist_max": 1040000, "hist_co2_bytes": 181440, "hist_temp_bytes": 60480, "hist_temp_count": 1439, "hist_psram": 1, "hist_rec_bytes": 8, "cpu_load0": 12, "cpu_load1": 35, "chip_temp": "45.3", "rtos_stack_warn": 512, "rtos_overflow": 0, "rtos_tasks": [["loopTask", 0, 1, 1, 5232, 412345, 60], ["IDLE0", 1, 0, 0, 724, 1650000, 470], ["IDLE1", 0, 0, 1, 732, 1500000, 420], ["httpd", 2, 5, -1, 4310, 2345, 3], ["wifi", 2, 23, 0, 3604, 30123, 25], ["tiT", 2, 18, -1, 380, 12001, 12], ["esp_timer", 2, 22, 0, 2980, 1500, 4]], "net_ntp_period": 180, "cfg_vars_fans_speed_ov": 0,
     "net_ssid": "Дом-WiFi", "net_ap_ssid": "CO2-Hub", "net_ap_delay": 10, "net_tz": "MSK-3", "net_ntp": "pool.ntp.org", "net_ip": "127.0.0.1", "net_rssi": -61,
     "abc_state": 0, "abc_period": 192, "abc_on": 1, "abc_msg": "",

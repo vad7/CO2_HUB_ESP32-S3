@@ -312,6 +312,7 @@ DC_NUT_CLR = 0.6                           # зазор вокруг описа�
 DC_SOLDER_L = 1.0                          # макет: пайка за концами лепестков
 DC_WIRES_H = 2.5                           # макет: провода от лепестков сразу вверх (к крышке), дальше вбок
 DC_BLOCK_GAP = 0.5                         # K22: разъём справа - зона гайки до правого нижнего углового блока
+DC_K22_TO_BACK = 8.0                       # K22: ось разъёма - на столько ближе к дну, чем середина глубины корпуса, мм
 TD_S8_DC_X = -4.0                          # T-Display + S8: между nRF24 и S8 (ниже планки nRF24 и поднятого S8)
 DC_SLOT_MARGIN = 0.5                       # щели нижней стенки - не ближе к зоне гайки
 
@@ -418,8 +419,8 @@ DC_NUT_R = DC_NUT_S / math.sqrt(3) + DC_NUT_CLR        # зона гайки: о
 DC_X_A = (BLOCK_X0 - DC_NUT_R - DC_BLOCK_GAP if not IS_S8 else    # K22: справа, у нижнего блока
           TD_S8_DC_X if IS_TD else                                  # T-Display + S8: между nRF24 и поднятым S8
           (NRF_FLAT_XC + NRF_FLAT_HALF + S8_XC - S8_L / 2) / 2)      # ES3C28P + S8: посередине между nRF24 и S8
-DC_Z = (BACK_T + ZL) / 2 if IS_S8 else D / 2           # ось разъёма: S8 - посередине стенки (гайка между дном
-                                                       # и крышкой), K22 - по центру собранного корпуса
+DC_Z = (BACK_T + ZL) / 2 if IS_S8 else D / 2 - DC_K22_TO_BACK   # ось разъёма: S8 - посередине стенки (гайка между
+                                                       # дном и крышкой), K22 - от середины собранного корпуса ближе к дну
 DC_NUT_Y1 = DC_THREAD_L - DC_FLANGE_T                  # конец резьбы внутри (от наружной поверхности стенки)
 DC_LUG_Y1 = DC_LEN - DC_FLANGE_T                       # концы лепестков
 WALLHOLE_X_A = TD_WALLHOLE_X if IS_TD else WALLHOLE_X

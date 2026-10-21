@@ -17,6 +17,7 @@
 
 var App = {
 	FAN_PARAM: 'cfg_fan_',     // выбранный вентилятор (cookie и параметр запроса)
+	MS_PER_S: 1000,            // период опроса - в секундах, setTimeout - в мс
 	vars: {},
 	/* Пункты меню: адрес, подпись (HTML) */
 	MENU: [
@@ -105,9 +106,10 @@ var App = {
 	},
 
 	/* ---------- обмен с устройством ---------- */
-	/* Загрузить переменные; fill - заполнить поля форм; done(v) - после успешной загрузки */
-	load: function (fill, done) {
-		var q = new URLSearchParams(), g = document.body.getAttribute('data-groups');
+	/* Загрузить переменные; fill - заполнить поля форм; done(v) - после успешной загрузки;
+	   groups - только эти группы (по умолчанию - <body data-groups>) */
+	load: function (fill, done, groups) {
+		var q = new URLSearchParams(), g = groups || document.body.getAttribute('data-groups');
 		q.append(App.FAN_PARAM, App.fan());
 		/* g - без URLSearchParams: запятые как есть (прошивка всё равно декодирует %2C) */
 		fetch('/api/vars?' + q.toString() + (g ? '&g=' + g : ''), { cache: 'no-store' })
@@ -130,16 +132,17 @@ var App = {
 				App.status('Нет связи с устройством (' + e.message + ')', true);
 			});
 	},
-	/* Опрос каждые ms (0 - не опрашивать): обновляются data-var, затем each(v) */
-	poll: function (ms, each) {
-		if (!(ms > 0)) return;
+	/* Опрос каждые sec секунд (настройка cfg_co2_refresh_t; 0 - не опрашивать): обновляются data-var, затем each(v).
+	   groups - только эти группы (по умолчанию - все группы страницы) */
+	poll: function (sec, each, groups) {
+		if (!(sec > 0)) return;
 		clearTimeout(App._pollTimer);
 		App._pollTimer = setTimeout(function () {
 			App.load(false, function (v) {
 				if (each) each(v);
-			});
-			App.poll(ms, each);
-		}, ms);
+			}, groups);
+			App.poll(sec, each, groups);
+		}, sec * App.MS_PER_S);
 	},
 	/* Запись переменных: params - объект {имя: значение}, URLSearchParams или FormData.
 	   Выбранный вентилятор подставляется первым (поля cfg_fan_* относятся к нему), если не указан явно. */

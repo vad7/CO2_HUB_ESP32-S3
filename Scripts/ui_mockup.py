@@ -406,34 +406,42 @@ MOCK_ERRLOG = [
 ]
 
 
-def errlog_card(w, h, title, page, shift=0):
-    """Карточка «Журнал ошибок» (ui.cpp drawErrLog): «Зап.: N  стр/стр» - в шапке (ES - под названием, TD - справа),
-    запись - 2 строки 9x15: время (жёлтым), что случилось (белым). Длинная строка сдвигается влево на shift px,
-    но не дальше своего конца (ES - свайпом, TD - бегущей строкой). ES: без нижнего ряда, «<» «>» - в шапке."""
+def errlog_card(w, h, title, page, shift=0, view=True, total=None):
+    """Карточка «Журнал ошибок» (ui.cpp drawErrLog): запись - 2 строки 9x15: время (жёлтым), что случилось (белым).
+    Длинная строка сдвигается влево на shift px, но не дальше своего конца (ES - свайпом, TD - бегущей строкой).
+    ES: view=False - пункт меню: ряд «<» «Просмотр» «>», шапка - название и под ним «Записей: N»; view=True - просмотр:
+    только «Назад», вместо названия «Записей: N  стр/стр», список до низа экрана. TD: «Записей: N  стр/стр» справа.
+    total - сколько записей показать в шапке (по умолчанию - MOCK_ERRLOG)."""
     im = Image.new("RGB", (w, h), (0, 0, 0))
     d = ImageDraw.Draw(im)
     touch = h == 240
     top_in = TOP_INSET_ES if touch else 0
     top = top_in + BTN_ROW_H if touch else HEADER_H + MARGIN * 2
-    bottom = h if touch else h - 20
+    bottom = (h if view else h - BTN_ROW_H) if touch else h - 20
     rows = (bottom - top) // TASK_LINE_H
     per = max(1, rows // 2)
-    pages = (len(MOCK_ERRLOG) + per - 1) // per
-    cnt, pg = "Зап.: %d  " % len(MOCK_ERRLOG), "%d/%d" % (page + 1, pages)
+    n_all = total or len(MOCK_ERRLOG)
+    pages = (n_all + per - 1) // per
+    paged = view or not touch
+    cnt, pg = "Записей: %d" % n_all + ("  " if paged else ""), "%d/%d" % (page + 1, pages) if paged else ""
     if touch:
-        nav_w, nav_h = 36, BTN_ROW_H // 2                  # ui.cpp LOG_NAV_W, LOG_HDR_LINE_H
         d.rounded_rectangle((w - 90 + 2, top_in + 2, w - 2, top - 2), 6, fill=NAVY)
         d.text((w - 45, (top_in + top) // 2), "Назад", font=F_TEXT, fill=WHITE, anchor="mm")
-        for i, s in enumerate(("<", ">")):
-            x0 = w - 90 - nav_w * (2 - i)
-            d.rounded_rectangle((x0 + 2, top_in + 2, x0 + nav_w - 2, top - 2), 6, fill=NAVY)
-            d.text((x0 + nav_w // 2, (top_in + top) // 2), s, font=F_TEXT, fill=WHITE, anchor="mm")
-        d.text((MARGIN, top_in + nav_h // 2), "Система 2/9", font=F_SMALL, fill=CYAN, anchor="lm")
-        cy, x = top_in + nav_h + (BTN_ROW_H - nav_h) // 2, MARGIN
+        nav_h = BTN_ROW_H // 2                              # ui.cpp LOG_HDR_LINE_H
+        if view:
+            cy, x = (top_in + top) // 2, MARGIN
+        else:
+            d.text((MARGIN, top_in + nav_h // 2), "Система 2/9", font=F_SMALL, fill=CYAN, anchor="lm")
+            cy, x = top_in + nav_h + (BTN_ROW_H - nav_h) // 2, MARGIN
     else:
-        d.text((MARGIN, top // 2), "Система 2/9", font=F_SMALL, fill=CYAN, anchor="lm")
         cy = top // 2
+        d.text((MARGIN, cy), "Система 2/9", font=F_SMALL, fill=CYAN, anchor="lm")
         x = w - MARGIN - d.textlength(pg, font=F_SMALL) - d.textlength(cnt, font=F_SMALL)
+    if touch and not view:
+        w4, y = w // 4, h - BTN_ROW_H
+        for x0, bw, s_ in ((0, w4, "<"), (w4, 2 * w4, "Просмотр"), (3 * w4, w - 3 * w4, ">")):
+            d.rounded_rectangle((x0 + 2, y + 2, x0 + bw - 2, h - 2), 6, fill=NAVY)
+            d.text((x0 + bw // 2, y + BTN_ROW_H // 2), s_, font=F_TEXT, fill=WHITE, anchor="mm")
     d.text((x, cy), cnt, font=F_SMALL, fill=GREY, anchor="lm")
     d.text((x + d.textlength(cnt, font=F_SMALL), cy), pg, font=F_SMALL, fill=CYAN, anchor="lm")
     avail = w - 2 * MARGIN
@@ -477,9 +485,10 @@ def main():
              (sys_card(320, 240, sys_n, "Система - обычный случай"), sys_card(320, 170, sys_n, "Система - обычный случай")),
              (sys_card(320, 240, sys_w, "Система - худший случай по длине"),
               sys_card(320, 170, sys_w, "Система - худший случай по длине")),
-             (errlog_card(320, 240, "ES3C28P: Журнал ошибок (свайп вверх / вниз - страницы)", 0),
-              errlog_card(320, 240, "ES3C28P: Журнал, свайп влево - длинные строки сдвинуты", 0, 90)),
-             (errlog_card(320, 170, "T-Display: Журнал ошибок (КН - страницы, длинные - бегущей строкой)", 0),),
+             (errlog_card(320, 240, "ES3C28P: Система -> Журнал ошибок («Просмотр» - листать)", 0, view=False),
+              errlog_card(320, 240, "ES3C28P: просмотр журнала (свайп вверх / вниз - страницы)", 0)),
+             (errlog_card(320, 240, "ES3C28P: просмотр, свайп влево - длинные строки сдвинуты", 0, 90),
+              errlog_card(320, 170, "T-Display: Журнал ошибок (КН - страницы, длинные - бегущей строкой)", 0)),
              (tasks_card(320, 240, "ES3C28P: Система -> Задачи FreeRTOS («-» / «+» - страницы)", 0),
               tasks_card(320, 170, "T-Display: Задачи FreeRTOS (ДН Кн.1 - войти, КН - страницы)", 0)),
              (tasks_card(320, 240, "ES3C28P: Задачи, стр. 2", 1),
