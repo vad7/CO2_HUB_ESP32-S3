@@ -264,6 +264,10 @@ document.getElementById('ota_go').onclick = function () {
 	var f = document.getElementById('ota_file').files[0], msg = document.getElementById('ota_msg'),
 		prog = document.getElementById('ota_prog');
 	if (!f) { App.status('Выберите файл прошивки', true); return; }
+	if (/_full\.bin$/i.test(f.name)) {   /* полный образ (загрузчик + разделы + программа) - только по USB с адреса 0x0 */
+		App.status('Это полный образ для первой прошивки по USB (…_full.bin). Для обновления нужен файл без «_full»', true);
+		return;
+	}
 	/* Имя от сборки: firmware_<плата>_<датчик>_<версия>.bin (Scripts/copy_firmware.py);
 	   у устройства: sys_fw_id = <плата>_<датчик>, sys_fw_board = <плата> */
 	var v = App.vars, m = f.name.match(/^firmware_(.+)_(\d[^_]*)\.bin$/i), warn = '';

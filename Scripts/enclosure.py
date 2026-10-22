@@ -106,6 +106,11 @@ WIN_CHAMFER = 1.6                          # ES3C28P: скос 45° кромки
                                            # тача (у стекла остаётся LID_T - WIN_CHAMFER ровной кромки)
 USB_W, USB_H = 13.0, 8.0                   # вырез под Type-C с корпусом штекера (обе платы)
 USB_MIN_BRIDGE = 1.5                       # перемычка стенки над вырезом тоньше - вырез открывается до верха стенки
+# Заглушка выреза Type-C (печатная, по эскизу пользователя - «Т» в профиль): вставка по форме выреза + фланец снаружи
+USB_PLUG_CLR = 0.15                        # зазор вставки в вырезе на сторону, мм (держится трением; подогнать по печати)
+USB_PLUG_RIM = 2.0                         # фланец шире выреза на сторону, мм (эскиз: ~0,15 ширины фланца)
+USB_PLUG_FLANGE_T = 0.8                    # толщина фланца, мм (эскиз: вставка в ~3 раза толще; 4 слоя по 0.2)
+USB_PLUG_GAP = 0.3                         # торец вставки - не ближе к разъёму / краю платы внутри, мм
 USB_BODY_H = 3.25                          # ES3C28P: корпус Type-C стоит на ТЫЛЬНОЙ стороне платы (не утоплен),
                                            # от тыла платы до -4.85 по STEP (габарит -0.5 - это выводы в плате)
 USB_Z_FROM_PCB_FRONT = -(PCB_T + USB_BODY_H / 2)   # центр разъёма относительно лицевой стороны платы = -3.225
@@ -1219,6 +1224,51 @@ def volume_of(a, b):
     return sum(s.Volume() for s in x.solids().vals())
 
 
+def usb_plug(dm):
+    """Заглушка выреза Type-C на месте (в координатах корпуса): вставка - овал выреза минус USB_PLUG_CLR (у T-Display
+    с пазом до верха стенки - и паз), фланец снаружи на USB_PLUG_RIM шире. Длина вставки - толщина стенки, но не
+    ближе USB_PLUG_GAP к деталям напротив выреза (T-Display - корпус разъёма, ES - край платы).
+    Возвращает (заглушка, длина вставки, свободно от наружной поверхности стенки до деталей)."""
+    sx = 1 if USB_SIDE == "right" else -1
+    yc, zc = usb_center()
+    w, h = USB_W - 2 * USB_PLUG_CLR, USB_H - 2 * USB_PLUG_CLR
+    slot = ZL - (zc + USB_H / 2) < USB_MIN_BRIDGE        # вырез открыт до верха стенки (как в build_body)
+    # свободно: от наружной поверхности до ближайшей детали в проекции выреза
+    xo = sx * W / 2
+    probe = box(min(xo, 0), max(xo, 0), yc - USB_W / 2, yc + USB_W / 2, zc - USB_H / 2,
+                ZL if slot else zc + USB_H / 2)
+    free = W / 2
+    for k, d in dm.items():
+        if k in DUMMY_ZONES or volume_of(d, probe) < 0.01:
+            continue
+        bb = d.intersect(probe).val().BoundingBox()
+        free = min(free, (xo - bb.xmax) if sx > 0 else (bb.xmin - xo))
+    length = min(WALL, free - USB_PLUG_GAP)
+    x_in = xo - sx * length                               # торец вставки внутри
+    base = cq.Workplane("YZ").workplane(offset=min(xo, x_in))
+    ins = base.center(yc, zc).rect(w, h).extrude(length).edges("|X").fillet(h / 2 - 0.01)
+    if slot:                                              # паз до верха стенки - заполнить до ZL
+        ins = ins.union(box(min(xo, x_in), max(xo, x_in), yc - w / 2, yc + w / 2, zc, ZL))
+    # не выше стенки: у T-Display овал выреза выходит за её верх - там крышка (ложится на вставку вровень)
+    ins = ins.intersect(box(min(xo, x_in) - 1, max(xo, x_in) + 1, yc - USB_W, yc + USB_W, 0, ZL))
+    ztop = (ZL if slot else zc + h / 2) + USB_PLUG_RIM    # фланец: овал / скруглённый прямоугольник вокруг
+    zbot = zc - h / 2 - USB_PLUG_RIM
+    fw = w + 2 * USB_PLUG_RIM
+    xf = xo if sx > 0 else xo - USB_PLUG_FLANGE_T
+    fl = (cq.Workplane("YZ").workplane(offset=xf).center(yc, (ztop + zbot) / 2).rect(fw, ztop - zbot)
+          .extrude(USB_PLUG_FLANGE_T).edges("|X").fillet(min(fw, ztop - zbot) / 2 - 0.01))
+    return ins.union(fl), length, free
+
+
+def usb_plug_print(plug):
+    """Заглушка для печати: фланцем на стол, вставка вверх (без поддержек)."""
+    sx = 1 if USB_SIDE == "right" else -1
+    p = plug.rotate((0, 0, 0), (0, 1, 0), 90 * sx)        # наружу (-X слева / +X справа) -> вниз (-Z): z' = -x·sin
+
+    bb = p.val().BoundingBox()
+    return p.translate((-(bb.xmin + bb.xmax) / 2, -(bb.ymin + bb.ymax) / 2, -bb.zmin))
+
+
 # ------------------------------------ чертёж и предпросмотр ------------------------------------
 def layout(path):
     """Плоский чертёж: вид спереди (крышка снята) и разрез по Y-Z. Размеры - из параметров."""
@@ -1661,6 +1711,28 @@ def build_one():
         bb = bp2.val().BoundingBox()
         print("  %s_buttons_x2.stl  %.1f x %.1f x %.1f мм (2 штырька кнопок, печать наконечником вниз)" % (PREFIX, bb.xlen, bb.ylen, bb.zlen))
 
+    # заглушка выреза Type-C: без пересечений с корпусом, крышками и деталями; вставка не короче фланца; фланец -
+    # на наружной поверхности стенки (по Z - в пределах корпуса)
+    plug, plug_len, plug_free = usb_plug(dm)
+    plug_ok = plug.val().isValid() and plug_len >= USB_PLUG_FLANGE_T
+    for nm, other in [("body", body)] + list(lids.items()) + [(k, d) for k, d in dm.items() if k not in DUMMY_ZONES]:
+        v = volume_of(plug, other)
+        if v >= 0.01:
+            plug_ok = False
+            print("    usb_plug x %-9s %8.3f  <-- ПЕРЕСЕЧЕНИЕ" % (nm, v))
+    pb = plug.val().BoundingBox()
+    if pb.zmin < 0 or pb.zmax > D:
+        plug_ok = False
+        print("    usb_plug: фланец Z %.1f..%.1f выходит за корпус (0..%.1f)  <-- ПРОБЛЕМА" % (pb.zmin, pb.zmax, D))
+    ok &= plug_ok
+    up = for_print(usb_plug_print(plug))
+    cq.exporters.export(up, os.path.join(OUT, PREFIX + "_usb_plug.stl"), tolerance=0.02, angularTolerance=0.1)
+    bb = up.val().BoundingBox()
+    print("  %s_usb_plug.stl  %.1f x %.1f x %.1f мм (заглушка Type-C: вставка %.1f мм, до деталей внутри %.1f; "
+          "зазор %.2f на сторону; печать фланцем вниз); %s"
+          % (PREFIX, bb.xlen, bb.ylen, bb.zlen, plug_len, plug_free, USB_PLUG_CLR,
+             "без пересечений" if plug_ok else "ЕСТЬ ПРОБЛЕМЫ"))
+
     asm = (cq.Assembly(name=PREFIX + "_enclosure")
            .add(body, name="body", color=cq.Color(0.2, 0.5, 0.8, 1))
            .add(lids["lid_table"], name="lid", color=cq.Color(0.9, 0.9, 0.9, 0.6)))
@@ -1675,6 +1747,7 @@ def build_one():
     for i, e in enumerate(ears):
         asm.add(e, name="ear%d" % (i + 1), color=cq.Color(0.8, 0.2, 0.8, 1))
     asm.add(nrf_ear_p, name="nrf_ear", color=cq.Color(0.8, 0.2, 0.8, 1))
+    asm.add(plug, name="usb_plug", color=cq.Color(0.8, 0.2, 0.8, 1))
     asm.export(os.path.join(OUT, PREFIX + "_assembly.step"))
     layout(os.path.join(OUT, PREFIX + "_layout.png"))
     preview(body, lids["lid_wall"], dm, os.path.join(OUT, PREFIX + "_preview.png"))
