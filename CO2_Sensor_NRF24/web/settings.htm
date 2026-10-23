@@ -5,7 +5,7 @@
 	<title>Настройки</title>
 	<link rel="stylesheet" href="/style.css">
 	<script src="/app.js"></script>
-</head><body data-groups="main,cfg,hist,radio,status,net,abc,tinfo">
+</head><body data-groups="main,cfg,night,screen,sens,hist,radio,status,net,abc,tinfo">
 <div id="app_menu"></div>
 	<div class="content">
 		<h2 class="title">Настройки</h2>
@@ -13,7 +13,7 @@
 			<a href="#g_control">Управление</a> · <a href="#g_fans">Вентиляторы</a> · <a href="#g_co2">Пороги CO<sub>2</sub></a> · <a href="#g_night">Ночь</a> · <a href="#g_screen">Экран</a> · <a href="#g_clock">Время</a> · <a href="#g_net">Сеть</a> · <a href="#g_sensors">История и датчики</a> · <a href="#g_radio">Радио nRF24</a> · <a href="#g_access">Пароль</a> · <a href="#g_ota">Прошивка</a> · <a href="#g_abc">ABC датчика</a> · <a href="info.htm">Инфо</a>
 		</p>
 
-		<fieldset id="g_control"><legend>Управление</legend>
+		<fieldset id="g_control" data-groups="main" data-poll="main" hidden><legend>Управление</legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Общая поправка скорости:</td>
@@ -24,7 +24,7 @@
 		</form>
 		</fieldset>
 
-		<fieldset id="g_fans"><legend>Вентиляторы</legend>
+		<fieldset id="g_fans" data-groups="cfg" data-poll="sys" hidden><legend>Вентиляторы</legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Количество вентиляторов:</td>
@@ -36,20 +36,22 @@
 		</form>
 		</fieldset>
 
-		<fieldset id="g_co2"><legend>Пороги CO<sub>2</sub></legend>
+		<fieldset id="g_co2" data-groups="cfg" data-poll="sys" hidden><legend>Пороги CO<sub>2</sub></legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Пороги скорости 1..6, ppm:</td>
 					<td><input title='n,n,n,n,n,n' name='cfg_co2_fans_speed_th' size='34' maxlength='50'></td></tr>
 				<tr><td class="label">Гистерезис понижения скорости, ppm:</td>
-					<td><input title='ppm' name='cfg_co2_fans_speed_delta' maxlength='10' size='7'></td></tr>
+					<td><input title='ppm: скорость снижается, когда CO2 ниже порога ступени на столько' name='cfg_co2_fans_speed_delta' maxlength='10' size='7'></td></tr>
+				<tr><td class="label">Гистерезис выключения, ppm:</td>
+					<td><input title='ppm: со скорости 1 на 0 - когда CO2 ниже первого порога на столько' name='cfg_co2_off_delta' maxlength='5' size='7'></td></tr>
 			</table>
 			<input type='hidden' name='cfg_co2_save' value='1'>
 			<p class="center"><input type='submit' value='Сохранить' class="button"></p>
 		</form>
 		</fieldset>
 
-		<fieldset id="g_night"><legend>Ночь</legend>
+		<fieldset id="g_night" data-groups="night" data-poll="sys" hidden><legend>Ночь</legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Начало ночи (будни):</td>
@@ -68,7 +70,7 @@
 		</form>
 		</fieldset>
 
-		<fieldset id="g_screen"><legend>Экран и веб</legend>
+		<fieldset id="g_screen" data-groups="screen" data-poll="sys" hidden><legend>Экран и веб</legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Яркость экрана днём, %:</td>
@@ -92,7 +94,7 @@
 		</form>
 		</fieldset>
 
-		<fieldset id="g_clock"><legend>Время</legend>
+		<fieldset id="g_clock" data-groups="sys" data-poll="sys" hidden><legend>Время</legend>
 		<p class="center">Сейчас: <span data-var="sntp_time" data-fmt="time"></span> (<span data-var="sntp_status"></span>)</p>
 		<p class="center">
 			<input type='datetime-local' id='time_in' step='1'>
@@ -102,7 +104,7 @@
 		<p class="center">Без интернета - вручную; работающий NTP при следующей синхронизации поправит часы.</p>
 		</fieldset>
 
-		<fieldset id="g_net"><legend>Сеть</legend>
+		<fieldset id="g_net" data-groups="net" data-poll="net" hidden><legend>Сеть</legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Wi-Fi сеть (SSID):</td>
@@ -137,7 +139,7 @@
 			включается дополнительно и выключается, как только связь восстановится.</p>
 		</fieldset>
 
-		<fieldset id="g_sensors"><legend>История и датчики</legend>
+		<fieldset id="g_sensors" data-groups="sens,hist,status,tinfo" data-poll="hist,status" hidden><legend>История и датчики</legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Датчик CO<sub>2</sub> (<span data-var="sys_sensor"></span>):</td><td data-var="co2_status"></td></tr>
@@ -158,6 +160,10 @@
 						<option value="12">12 бит (0,0625 °C)</option><option value="11">11 бит (0,125 °C)</option>
 						<option value="10">10 бит (0,25 °C)</option><option value="9">9 бит (0,5 °C)</option></select>
 					<input type="button" value="Записать в датчик" class="button" id="tres_go"></span></td></tr>
+				<tr><td class="label">Повторов чтения датчиков:</td>
+					<td><input title='0..10: неудачное чтение CO2 или температуры повторяется сразу (через паузу ниже), не дожидаясь следующего периода; в журнал ошибок - только если не помогли все повторы' name='cfg_sens_retries' maxlength='2' size='3'></td></tr>
+				<tr><td class="label">Пауза перед повтором, мс:</td>
+					<td><input title='10..2000' name='cfg_sens_retry_ms' maxlength='4' size='5'></td></tr>
 				<tr><td class="label">Частота шины I2C, кГц:</td>
 					<td><input title='Шина K22, SHT40 и тача. Действует сразу после сохранения. С K22 - не выше 100 кГц (гайд I2C, табл. 5); меньше - для длинных проводов и слабых подтяжек. Частоты, на которых драйвер искажает тайминги шины (например, 50 и 75 кГц), заменяются ближайшей допустимой' name='cfg_i2c_khz' maxlength='3' size='4'>
 					&nbsp;40..<span data-var="i2c_khz_max"></span></td></tr>
@@ -173,7 +179,7 @@
 		</form>
 		</fieldset>
 
-		<fieldset id="g_radio"><legend>Радио nRF24</legend>
+		<fieldset id="g_radio" data-groups="radio,hist,status" data-poll="radio,status" hidden><legend>Радио nRF24</legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Режим связи с вентиляторами:</td>
@@ -196,7 +202,7 @@
 		</form>
 		</fieldset>
 
-		<fieldset id="g_access"><legend>Пароль настроек</legend>
+		<fieldset id="g_access" data-groups="sys" data-poll="sys" hidden><legend>Пароль настроек</legend>
 		<form data-api>
 			<table class="form">
 				<tr><td class="label">Новый пароль:</td>
@@ -212,7 +218,7 @@
 			Забыли пароль - на экране «Система → Сброс пароля веба» (станет <b>co2sensor</b>).</p>
 		</fieldset>
 
-		<fieldset id="g_ota"><legend>Обновление прошивки</legend>
+		<fieldset id="g_ota" data-groups="sys" data-poll="sys" hidden><legend>Обновление прошивки</legend>
 		<p class="center">
 			<input type='file' id='ota_file' accept='.bin'>
 			<input type='button' value='Загрузить и перезапустить' class="button" id="ota_go">
@@ -223,7 +229,7 @@
 			<code>Build/<span data-var="sys_fw_board"></span>/</code>. Образ проверяется перед переключением; новая прошивка, которая не запустилась, откатывается на прежнюю.</p>
 		</fieldset>
 
-		<fieldset id="g_abc"><legend>Автокалибровка ABC датчика CO<sub>2</sub> (<span data-var="sys_sensor"></span>)</legend>
+		<fieldset id="g_abc" data-groups="abc" data-poll="sys" hidden><legend>Автокалибровка ABC датчика CO<sub>2</sub> (<span data-var="sys_sensor"></span>)</legend>
 		<p class="center"></p>
 		<table class="form">
 			<tr><td><input type='button' value='Прочитать из датчика' class="button" id="abc_read"></td>
@@ -400,20 +406,42 @@ document.getElementById('tres_go').onclick = function () {
 	App.send({ temp_res: b }, function () { setTimeout(function () { App.load(false, tempInfo); }, 2000); });
 };
 
-/* Опрос - только строки состояния (датчики, сеть, радио, история); настройки, ABC и серийный номер датчика
-   температуры (tinfo) - при загрузке и после сохранения */
-var POLL_GROUPS = 'main,hist,radio,status,net';
-var started = false;
-App.start(function (v) {
-	histEst();
-	tempInfo(v);
-	/* DS18B20 - только если на плате есть свободный вывод (ES3C28P + S8 - нет) */
-	var ds = document.getElementById('opt_ds');
-	ds.disabled = v.temp_ds_ok != 1;
-	if (ds.disabled) ds.textContent = 'DS18B20 (нет свободного вывода)';
-	if (started) return;
-	started = true;
-	App.poll(v.cfg_co2_refresh_t, null, POLL_GROUPS);
-});
+/* Разделы: виден один fieldset (выбор - ссылкой оглавления, запоминается в адресе #g_...). Читаются только группы
+   /api/vars раздела (data-groups: подставляется в <body data-groups> - так их берут и загрузка после «Сохранить»),
+   опрос раз в cfg_co2_refresh_t с - только живые строки раздела (data-poll) */
+var TABS = Array.prototype.slice.call(document.querySelectorAll('fieldset[data-groups]'));
+function curTab() { return TABS.filter(function (f) { return !f.hidden; })[0] || TABS[0]; }
+function showTab(id) {
+	var fs = document.getElementById(id);
+	if (TABS.indexOf(fs) < 0) fs = TABS[0];
+	TABS.forEach(function (f) { f.hidden = f !== fs; });
+	var links = document.querySelectorAll('.toc a[href^="#"]');
+	for (var i = 0; i < links.length; i++) links[i].className = links[i].getAttribute('href') == '#' + fs.id ? 'active' : '';
+	document.body.setAttribute('data-groups', fs.getAttribute('data-groups'));
+	return fs;
+}
+/* Разделозависимое - только если его группы пришли */
+function init(v) {
+	if ('hist_rec_bytes' in v && 'cfg_hist_days' in v) histEst();
+	if ('temp_res' in v) tempInfo(v);
+	if ('temp_ds_ok' in v) {   /* DS18B20 - только если на плате есть свободный вывод (ES3C28P + S8 - нет) */
+		var ds = document.getElementById('opt_ds');
+		ds.disabled = v.temp_ds_ok != 1;
+		ds.textContent = ds.disabled ? 'DS18B20 (нет свободного вывода)' : 'DS18B20 (1-Wire)';
+	}
+	App.poll(v.cfg_co2_refresh_t, null, curTab().getAttribute('data-poll'));
+}
+var tocLinks = document.querySelectorAll('.toc a[href^="#"]');
+for (var t = 0; t < tocLinks.length; t++) {
+	tocLinks[t].onclick = function (ev) {
+		ev.preventDefault();
+		var id = this.getAttribute('href').slice(1);
+		history.replaceState(null, '', '#' + id);
+		showTab(id);
+		App.load(true, init);
+	};
+}
+showTab(location.hash.slice(1));
+App.start(init);
 </script>
 </body></html>

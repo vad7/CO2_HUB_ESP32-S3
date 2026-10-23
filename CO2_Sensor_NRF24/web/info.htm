@@ -28,6 +28,32 @@
 		</table>
 		</fieldset>
 
+		<fieldset id="g_errlog"><legend>Журнал ошибок</legend>
+		<pre class="log" id="errlog">загрузка...</pre>
+		<p class="center"><input type='button' value='Очистить журнал' class="button" id="errlog_clear">
+			<input type='button' value='Тест I2C' class="button" id="i2c_test"></p>
+		<p class="center"><small>Новые - сверху. Ошибки датчиков CO<sub>2</sub> и температуры, тача, nRF24, связи с вентиляторами;
+			повторы той же ошибки - одной записью со счётчиком и временем последнего раза. Ошибка датчика пишется, только если
+			не помогли повторы чтения («Настройки → История и датчики»). Хранится в RAM устройства (4 Кб, до 256 записей),
+			после перезапуска - пустой. Обновляется вместе со страницей (период - «Настройки → Экран и веб»).</small></p>
+		<pre class="log" id="i2ctest" hidden></pre>
+		<p class="center" id="i2ctest_note" hidden><small>Тест I2C: время обменов K22, SHT40 и тача по фазам (мин / ср. / макс),
+			ошибки; K22 - на каком чтении готов ответ при паузе 100 / 120 / 160 мс. Идёт до ~4 мин (без K22 - ~2 мин): опрос датчиков на I2C, экран и
+			тач на это время остановлены, вентиляторы работают (CO<sub>2</sub> - из чтений теста). Ошибки теста в журнал не пишутся.</small></p>
+		</fieldset>
+
+		<fieldset id="g_buffers"><legend>Буфер истории</legend>
+		<table class="mdbtab">
+			<tr><th>Размер</th><th>Записей</th><th>Дней</th><th>Вмещает дней</th></tr>
+			<tr><td id="b_size"></td><td id="b_rec"></td><td id="b_day"></td><td id="b_day_cap"></td></tr>
+		</table>
+		<p class="center"><small>Размер - выделено под буфер (<span id="b_where"></span>), запись - <span id="b_recb"></span> б:
+			время, CO<sub>2</sub> и температура (последнее показание датчика; датчика нет - пусто). «Вмещает дней» - весь буфер
+			(<span id="b_cap"></span> записей).</small></p>
+		<p id="b_note" class="center"></p>
+		<p class="center">Размер задаётся в сутках - <a href="settings.htm#g_sensors">Настройки → История и датчики</a>.</p>
+		</fieldset>
+
 		<fieldset id="g_tasks"><legend>Задачи FreeRTOS</legend>
 		<table class="mdbtab" id="t_tasks">
 			<tr><th>Задача</th><th>Состояние</th><th>Приоритет</th><th>Стек мин., б</th><th>Время, мс</th><th>Итого</th></tr>
@@ -38,30 +64,10 @@
 		<p class="center status inline error" id="t_over" style="display:none">Задач больше, чем вмещает таблица прошивки (SYSINFO_TASKS_MAX) - список пуст.</p>
 		</fieldset>
 
-		<fieldset id="g_buffers"><legend>Буферы истории (CO<sub>2</sub><span class="b_t"> + Температура</span>)</legend>
-		<table class="mdbtab">
-			<tr><th></th><th>CO<sub>2</sub></th><th class="b_t">Температура</th><th>Итого</th><th>Вмещает</th></tr>
-			<tr><th>Размер</th><td id="b_size_co2"></td><td class="b_t" id="b_size_t"></td><td id="b_size_all"></td><td id="b_size_cap"></td></tr>
-			<tr><th>Записей</th><td id="b_rec_co2"></td><td class="b_t" id="b_rec_t"></td><td id="b_rec_all"></td><td id="b_rec_cap"></td></tr>
-			<tr><th>Дней</th><td id="b_day_co2"></td><td class="b_t" id="b_day_t"></td><td id="b_day_all"></td><td id="b_day_cap"></td></tr>
-		</table>
-		<p class="center"><small>Размер - занято записями, «Вмещает» - выделенный буфер (<span id="b_where"></span>).
-			Температура - отдельный буфер, только при выбранном датчике; в записи - последнее показание датчика.</small></p>
-		<p id="b_note" class="center"></p>
-		<p class="center">Размер задаётся в сутках - <a href="settings.htm#g_sensors">Настройки → История и датчики</a>.</p>
-		</fieldset>
-
-		<fieldset id="g_errlog"><legend>Журнал ошибок</legend>
-		<pre class="log" id="errlog">загрузка...</pre>
-		<p class="center"><small>Новые - сверху. Ошибки датчиков CO<sub>2</sub> и температуры, nRF24, связи с вентиляторами;
-			повторы той же ошибки - одной записью со счётчиком и временем последнего раза. Хранится в RAM устройства
-			(4 Кб, до 256 записей), после перезапуска - пустой. Обновляется вместе со страницей.</small></p>
-		</fieldset>
 	</div>
 <div id="app_footer"></div>
 <script>
-/* Буферы истории: колонки CO2, Температура (если буфер есть), Итого, Вмещает; строки Размер, Записей, Дней.
-   Размер - занято записанным (записей × байт на запись), Вмещает - выделено (hist_cap записей) */
+/* Буфер истории: одна строка - Размер (выделено), Записей, Дней (записано), Вмещает дней (весь буфер) */
 function days(rec, v) { return (rec * v.cfg_co2_period / 86400).toFixed(1); }
 function setText(id, text) { document.getElementById(id).textContent = text; }
 /* Журнал ошибок - текстом с устройства (/errlog.txt) */
@@ -71,27 +77,42 @@ function errlog() {
 		.then(function (t) { document.getElementById('errlog').textContent = t; })
 		.catch(function (e) { document.getElementById('errlog').textContent = 'Нет связи (' + e.message + ')'; });
 }
+/* Очистка журнала - /api/set errlog_clear=1 (пароль настроек, если задан), затем перечитать */
+document.getElementById('errlog_clear').onclick = function () {
+	if (!confirm('Очистить журнал ошибок устройства?')) return;
+	App.send({ errlog_clear: 1 }, errlog);
+};
+
+/* Тест I2C: /api/set i2c_test=1, затем отчёт /i2ctest.txt - каждые I2C_TEST_POLL_MS, пока идёт (начало - I2C_TEST_RUNNING) */
+var I2C_TEST_RUNNING = 'Идёт тест I2C: ', I2C_TEST_POLL_MS = 2000, i2cTimer = null, i2cWait = false;   /* i2cWait - тест запущен отсюда, ждём отчёт */
+function i2ctest() {
+	fetch('/i2ctest.txt', { cache: 'no-store' })
+		.then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+		.then(function (t) {
+			var pre = document.getElementById('i2ctest');
+			pre.textContent = t;
+			pre.hidden = document.getElementById('i2ctest_note').hidden = t === '';
+			clearTimeout(i2cTimer);
+			i2cWait = t.indexOf(I2C_TEST_RUNNING) === 0;
+			if (i2cWait) i2cTimer = setTimeout(i2ctest, I2C_TEST_POLL_MS);
+		})
+		.catch(function () { clearTimeout(i2cTimer); if (i2cWait) i2cTimer = setTimeout(i2ctest, I2C_TEST_POLL_MS); });   /* нет связи - повтор, пока ждём */
+}
+document.getElementById('i2c_test').onclick = function () {
+	if (!confirm('Запустить тест I2C (до ~4 мин)? Опрос датчиков на I2C, экран и тач на это время остановятся.')) return;
+	i2cWait = true;
+	App.send({ i2c_test: 1 }, function () { clearTimeout(i2cTimer); i2cTimer = setTimeout(i2ctest, I2C_TEST_POLL_MS); });
+};
 
 function update(v) {
 	tasks(v);
 	errlog();
-	var temp = v.hist_temp_bytes > 0, cap = v.hist_cap || 1;
-	var cb = v.hist_co2_bytes / cap, tb = v.hist_temp_bytes / cap;   /* байт на запись */
-	var cols = document.querySelectorAll('.b_t');
-	for (var k = 0; k < cols.length; k++) cols[k].hidden = !temp;
-	var n = v.history_count, nt = v.hist_temp_count;
-	setText('b_size_co2', App.bytes(n * cb));
-	setText('b_size_t', App.bytes(n * tb));
-	setText('b_size_all', App.bytes(n * (cb + tb)));
-	setText('b_size_cap', App.bytes(v.hist_co2_bytes + v.hist_temp_bytes));
-	setText('b_rec_co2', n);
-	setText('b_rec_t', nt);
-	setText('b_rec_all', n);
-	setText('b_rec_cap', v.hist_cap);
-	setText('b_day_co2', days(n, v));
-	setText('b_day_t', days(nt, v));
-	setText('b_day_all', days(n, v));
+	setText('b_size', App.bytes(v.hist_bytes));
+	setText('b_rec', v.history_count);
+	setText('b_day', days(v.history_count, v));
 	setText('b_day_cap', days(v.hist_cap, v));
+	setText('b_cap', v.hist_cap);
+	setText('b_recb', v.hist_rec_bytes);
 	setText('b_where', v.hist_psram == 1 ? 'в PSRAM' : 'во внутренней RAM, PSRAM нет');
 	document.getElementById('b_note').textContent = v.hist_cap < v.hist_wanted
 		? 'Ограничено памятью: заказано ' + v.hist_wanted + ' записей (' + v.cfg_hist_days + ' сут), выделено ' + v.hist_cap + '.'
@@ -133,6 +154,7 @@ App.start(function (v) {
 	update(v);
 	if (started) return;
 	started = true;
+	i2ctest();   /* отчёт прошлого теста, если был */
 	App.poll(v.cfg_co2_refresh_t, update);
 });
 </script>

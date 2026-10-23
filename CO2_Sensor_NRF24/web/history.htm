@@ -79,12 +79,15 @@ var brush = d3.brushX()
 	.extent([[0, 0], [width, height2]])
 	.on("brush end", brushed);
 
+// CO2 - область с разрывами там, где датчик молчал (столбец value пуст)
 var area = d3.area()
+	.defined(function(d) { return d.value != null; })
 	.x(function(d) { return x(d.date); })
 	.y0(height)
 	.y1(function(d) { return y(d.value); });
 
 var area2 = d3.area()
+	.defined(function(d) { return d.value != null; })
 	.x(function(d) { return x2(d.date); })
 	.y0(height2)
 	.y1(function(d) { return y2(d.value); });
@@ -138,7 +141,7 @@ function draw(v) {
 records(v);
 document.getElementById('t_title').hidden = v.temp_en != 1;
 d3.dsv(";", "history.csv", function(d) {   // колонки - «;», дробная часть - «,» (web.cpp sendHistory)
-	return { date: parseDate(d.date), value: +d.value,
+	return { date: parseDate(d.date), value: d.value === '' ? null : +d.value,   // пусто - пропуск
 		temp: d.temp == null || d.temp === '' ? null : +d.temp.replace(',', '.') };   // столбец temp пуст - нет данных
 }).then(function(data) {
 	data = data.filter(function(d) { return d.date != null; });

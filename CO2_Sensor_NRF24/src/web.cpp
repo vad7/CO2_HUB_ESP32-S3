@@ -6,6 +6,7 @@
 //   GET  /api/set?a=b&... - то же из строки запроса (для ручной проверки и скриптов);
 //   GET  /history.csv     - история CO2;
 //   GET  /errlog.txt      - журнал ошибок (errlog.h) расшифрованным текстом, новые записи первыми;
+//   GET  /i2ctest.txt     - отчёт теста I2C (i2c_test.h); пока идёт - строка хода, теста не было - пусто;
 //   POST /api/ota         - обновление прошивки: тело - firmware.bin (application/octet-stream), затем перезапуск.
 // Пароль настроек (net.webPass, HTTP Basic, имя - любое; пустой - не запрашивается): страницы настроек
 // (AUTH_PAGES), /api/ota и /api/set - кроме оперативного управления с главной (OPEN_VARS: поправка скорости,
@@ -36,6 +37,7 @@
 #include "sys_info.h"
 #include "radio.h"
 #include "errlog.h"
+#include "i2c_test.h"
 #include "i2c_bus.h"
 #include "web_files.h"
 
@@ -56,6 +58,7 @@ constexpr uint32_t US_PER_MS       = 1000;   // время задач FreeRTOS: 
 constexpr const char* INDEX_FILE   = "index.htm";
 constexpr const char* HISTORY_CSV  = "history.csv";
 constexpr const char* ERRLOG_TXT   = "errlog.txt";
+constexpr const char* I2C_TEST_TXT = "i2ctest.txt";
 constexpr const char* API_VARS     = "api/vars";
 constexpr const char* API_SET      = "api/set";
 constexpr const char* API_OTA      = "api/ota";
@@ -278,6 +281,7 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
         c.recalcAll = true;
     }
     else if (!strcmp(name, "cfg_co2_fans_speed_delta")) co2.speedDelta = (uint16_t)clampL(v, 0, UINT16_MAX);
+    else if (!strcmp(name, "cfg_co2_off_delta"))        { co2.offDelta = (uint16_t)clampL(v, 0, OFF_DELTA_UNSET - 1); c.recalcAll = true; }
     else if (!strcmp(name, "cfg_co2_period")) {         // период = шаг записей истории: при смене история очищается
         const uint16_t p = (uint16_t)clampL(v, TRANSMIT_PERIOD_MIN_S, TRANSMIT_PERIOD_MAX_S);
         if (p != co2.transmitPeriodS) { co2.transmitPeriodS = p; c.historyResize = true; }   // записей = сутки / период
@@ -301,6 +305,10 @@ static bool setVar(ReqCtx& c, const char* name, const char* val)
     else if (!strcmp(name, "cfg_co2_poll"))             co2.co2PollS = (uint8_t)clampL(v, CO2_POLL_MIN_S, CO2_POLL_MAX_S);
     else if (!strcmp(name, "cfg_i2c_khz"))              co2.i2cKhz = I2cBus::nearestKhz((uint16_t)clampL(v, I2C_KHZ_MIN, I2C_KHZ_MAX));   // действует сразу
     else if (!strcmp(name, "cfg_temp_period"))          co2.tempPeriodS = (uint8_t)clampL(v, TEMP_PERIOD_MIN_S, TEMP_PERIOD_MAX_S);
+    else if (!strcmp(name, "cfg_sens_retries"))         co2.sensorRetries = (uint8_t)clampL(v, 0, SENSOR_RETRIES_MAX);
+    else if (!strcmp(name, "cfg_sens_retry_ms"))        co2.sensorRetryMs = (uint16_t)clampL(v, SENSOR_RETRY_MS_MIN, SENSOR_RETRY_MS_MAX);
+    else if (!strcmp(name, "errlog_clear"))             { if (v == 1) ErrLog::clear(); }   // веб «Инфо»: очистить журнал
+    else if (!strcmp(name, "i2c_test"))                 { if (v == 1) I2cTest::request(); }   // веб «Инфо»: тест I2C (i2c_test.h)
     else if (!strcmp(name, "cfg_temp_sensor"))          co2.tempSensor  = (uint8_t)clampL(v, 0, TEMP_SENSOR_COUNT - 1);   // DS18B20 без вывода - sanitize() -> нет
     else if (!strcmp(name, "cfg_co2_save"))             c.saveCo2  = v == 1;
     else if (!strcmp(name, "cfg_co2_save_fans"))        { c.saveFans = v == 1; c.recalcAll = true; }
@@ -376,7 +384,7 @@ static void finishVars(ReqCtx& c)
 {
     Cfg::sanitize();
     if (c.historyResize)   // срок или период: пересоздать (и очистить) буферы истории
-        History::configure(Cfg::co2.historyDays, Cfg::co2.transmitPeriodS, Cfg::co2.tempSensor != TEMP_SENSOR_NONE);
+        History::configure(Cfg::co2.historyDays, Cfg::co2.transmitPeriodS);
     if (c.recalcAll) FanControl::sendNow(FAN_ALL, true);
     if (c.saveCo2)  Cfg::saveCo2();
     if (c.saveFans) Cfg::saveFans();
@@ -477,7 +485,7 @@ static void varsRadio(Json& j, const ReqCtx&)
     j.unum("radio_rx_count",      FanControl::passiveRxCount());
 }
 
-// Настройки CO2, ночи, экрана, датчика температуры
+// Вентиляторы и пороги CO2 (настройки «Вентиляторы», «Пороги CO2»; страница вентиляторов)
 static void varsCfg(Json& j, const ReqCtx&)
 {
     const CfgCo2& co2 = Cfg::co2;
@@ -489,20 +497,41 @@ static void varsCfg(Json& j, const ReqCtx&)
         n += snprintf(tmp + n, sizeof(tmp) - n, "%u%s", co2.thresholds[i], i < FAN_SPEED_MAX - 1 ? "," : "");
     j.str ("cfg_co2_fans_speed_th",    tmp);
     j.unum("cfg_co2_fans_speed_delta", co2.speedDelta);
+    j.unum("cfg_co2_off_delta",        co2.offDelta);
+}
+
+// Ночь
+static void varsNight(Json& j, const ReqCtx&)
+{
+    const CfgCo2& co2 = Cfg::co2;
     j.strf("cfg_co2_night_start",      "%02u%c%02u", (unsigned)(co2.nightStart / HHMM_DIV), HHMM_SEP, (unsigned)(co2.nightStart % HHMM_DIV));   // «22:30»
     j.strf("cfg_co2_night_end",        "%02u%c%02u", (unsigned)(co2.nightEnd / HHMM_DIV), HHMM_SEP, (unsigned)(co2.nightEnd % HHMM_DIV));
     j.strf("cfg_co2_night_start_wd",   "%02u%c%02u", (unsigned)(co2.nightStartWd / HHMM_DIV), HHMM_SEP, (unsigned)(co2.nightStartWd % HHMM_DIV));
     j.strf("cfg_co2_night_end_wd",     "%02u%c%02u", (unsigned)(co2.nightEndWd / HHMM_DIV), HHMM_SEP, (unsigned)(co2.nightEndWd % HHMM_DIV));
     j.unum("cfg_co2_night_max",        co2.nightMaxSpeed);
+}
+
+// Экран
+static void varsScreen(Json& j, const ReqCtx&)
+{
+    const CfgCo2& co2 = Cfg::co2;
     j.unum("cfg_co2_bright_day",       co2.brightDayPct);
     j.unum("cfg_co2_bright_night",     co2.brightNightPct);
     j.unum("cfg_digits_font",          co2.digitsFont);
+}
+
+// Датчики: CO2, температура, шина I2C, повторы чтения
+static void varsSens(Json& j, const ReqCtx&)
+{
+    const CfgCo2& co2 = Cfg::co2;
     j.num ("temp_ds_ok",               TEMP_DS18B20_AVAILABLE ? 1 : 0);   // есть вывод под DS18B20
     j.unum("cfg_temp_sensor",          co2.tempSensor);
     j.unum("cfg_temp_period",          co2.tempPeriodS);
     j.unum("cfg_co2_poll",             co2.co2PollS);
     j.unum("cfg_i2c_khz",              co2.i2cKhz);
     j.unum("i2c_khz_max",              I2C_KHZ_MAX);   // с K22 - 100
+    j.unum("cfg_sens_retries",         co2.sensorRetries);
+    j.unum("cfg_sens_retry_ms",        co2.sensorRetryMs);
 }
 
 // История: буферы (фактически выделено, записей, лимит памяти), срок, период
@@ -513,11 +542,9 @@ static void varsHist(Json& j, const ReqCtx&)
     j.unum("hist_cap",        History::capacity());
     j.unum("hist_wanted",     History::wanted());
     j.unum("hist_max",        History::maxRecords());
-    j.unum("hist_co2_bytes",  History::co2Bytes());
-    j.unum("hist_temp_bytes", History::tempBytes());
-    j.unum("hist_temp_count", History::tempCount());
+    j.unum("hist_bytes",      History::bytes());
     j.num ("hist_psram",      History::inPsram() ? 1 : 0);
-    j.unum("hist_rec_bytes",  HISTORY_CO2_REC_BYTES + (co2.tempSensor != TEMP_SENSOR_NONE ? HISTORY_TEMP_REC_BYTES : 0));
+    j.unum("hist_rec_bytes",  HISTORY_REC_BYTES);
     j.unum("cfg_hist_days",   co2.historyDays);
     j.unum("cfg_co2_period",  co2.transmitPeriodS);
 }
@@ -656,6 +683,9 @@ static const VarGroup VAR_GROUPS[] = {
     { "net",    varsNet    },
     { "fan",    varsFan    },
     { "tinfo",  varsTempInfo },
+    { "night",  varsNight  },
+    { "screen", varsScreen },
+    { "sens",   varsSens   },
 };
 constexpr uint8_t VAR_GROUP_COUNT = sizeof(VAR_GROUPS) / sizeof(VAR_GROUPS[0]);
 static_assert(VAR_GROUP_COUNT <= 16, "маска групп - uint16_t");
@@ -682,12 +712,13 @@ static void sendHistory(httpd_req_t* req)
     Out o(req);
     const char delim = HISTORY_CSV_SEP;
     o.printf("date%cvalue%ctemp\r\n", delim, delim);
+    HistoryCursor cur = {};                      // чтение подряд: время - без повторного прохода по буферу
     for (uint32_t i = 0;; i++) {
-        HistoryRecord rec;
+        HistoryPoint rec;
         bool ok;
-        int16_t tt;
-        { CfgLock l; ok = History::get(i, rec); tt = History::getTemp(i); }
+        { CfgLock l; ok = History::get(i, rec, cur); }
         if (!ok) break;
+        const int16_t tt = rec.temp;
         time_t t = Net::epochFromUptime(rec.uptimeS);
         if (t == 0) break;   // время неизвестно - дальше только более старые записи
         struct tm tm;
@@ -697,8 +728,33 @@ static void sendHistory(httpd_req_t* req)
             const int16_t a = tt < 0 ? -tt : tt;
             snprintf(temp, sizeof(temp), "%s%d%c%d", tt < 0 ? "-" : "", a / TENTHS_PER_DEG, HISTORY_CSV_DECIMAL, a % TENTHS_PER_DEG);
         }
-        o.printf("%04d-%02d-%02d %02d:%02d:%02d%c%u%c%s\r\n", 1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday,
-                 tm.tm_hour, tm.tm_min, tm.tm_sec, delim, rec.co2, delim, temp);
+        char co2[8] = "";                        // пусто - пропуск («нет данных»)
+        if (rec.co2 != HISTORY_NO_CO2) snprintf(co2, sizeof(co2), "%u", rec.co2);
+        o.printf("%04d-%02d-%02d %02d:%02d:%02d%c%s%c%s\r\n", 1900 + tm.tm_year, 1 + tm.tm_mon, tm.tm_mday,
+                 tm.tm_hour, tm.tm_min, tm.tm_sec, delim, co2, delim, temp);
+    }
+    o.end();
+}
+
+// i2ctest.txt: отчёт теста I2C (I2C_TEST_REPORT_LEN больше s_json - кусками, каждый скопирован под CfgLock)
+static void sendI2cTest(httpd_req_t* req)
+{
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", CACHE_NONE);
+    Out o(req);
+    for (size_t off = 0;;) {
+        size_t n;
+        {
+            CfgLock l;
+            const char* r = I2cTest::report();
+            const size_t len = strlen(r);
+            n = off < len ? len - off : 0;
+            if (n > sizeof(s_json)) n = sizeof(s_json);
+            memcpy(s_json, r + off, n);
+        }
+        if (n == 0) break;
+        o.write(s_json, n);
+        off += n;
     }
     o.end();
 }
@@ -947,6 +1003,7 @@ static esp_err_t handler(httpd_req_t* req)
     if (!strcmp(path, API_VARS)) return apiVars(req);
     if (!strcmp(path, HISTORY_CSV)) { sendHistory(req); return ESP_OK; }
     if (!strcmp(path, ERRLOG_TXT))  { sendErrLog(req); return ESP_OK; }
+    if (!strcmp(path, I2C_TEST_TXT)) { sendI2cTest(req); return ESP_OK; }
 
     const WebFile* f = findFile(path);
     if (!f) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");

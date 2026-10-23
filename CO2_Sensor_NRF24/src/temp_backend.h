@@ -1,5 +1,5 @@
 // temp_backend.h - общий интерфейс драйверов датчиков температуры (только для temp_sensor.cpp,
-// ds18b20.cpp, sht40.cpp). Драйвер - автомат: start() начинает измерение, poll() вызывается из loop()
+// ds18b20.cpp, sht40.cpp; SHT40 - и для теста I2C, i2c_test.cpp). Драйвер - автомат: start() начинает измерение, poll() вызывается из loop()
 // и делает не больше одного короткого шага; Done - результат в err / tenths (0.1 °C) / rhTenths (0.1 %, -1 - датчик
 // влажность не меряет).
 #pragma once
@@ -25,5 +25,9 @@ namespace Sht40 {
     void     start(uint32_t now);
     TempPoll poll(uint32_t now, TempErr& err, int16_t& tenths, int16_t& rhTenths);
     uint8_t  address();                                  // найденный адрес I2C (0 - не найден)
+    uint8_t  errAddr();                                  // адрес последней ошибки (0 - не найден ни на одном)
     bool     serial(uint32_t& sn);                       // серийный номер; false - не прочитан
+    // Тест I2C (i2c_test.cpp): команда измерения (true - ACK) и чтение результата (1 - верный, 0 - NACK, -1 - CRC)
+    bool     testCommand(uint8_t addr);
+    int8_t   testRead(uint8_t addr);
 }

@@ -6,4 +6,6 @@ namespace Ui {
     void begin();
     void showRadioStatus(bool found);                   // экран запуска: nRF24 найден / нет (подробности - журнал ошибок)
     void update(uint32_t now);                          // вызывать из loop()
+    void showTest(const char* line);                    // тест I2C (вместо update): экран «Тест I2C» и строка хода
+    void endTest();                                     // тест окончен - главный экран
 }

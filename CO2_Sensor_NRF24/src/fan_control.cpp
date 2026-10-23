@@ -173,8 +173,10 @@ static void calcSpeeds(uint8_t nfan)
     for (speed = 0; speed < FAN_SPEED_MAX; speed++) {
         uint16_t tr = Cfg::co2.thresholds[speed];
         if (s_average < tr) {
-            // при снижении CO2 - понижать скорость только с запасом fans_speed_delta
-            if (s_speedPrev <= speed || (uint16_t)(tr - s_average) >= Cfg::co2.speedDelta) break;
+            // при снижении CO2 - понижать скорость только с запасом fans_speed_delta; выключать (1 -> 0) - с запасом
+            // гистерезиса выключения offDelta
+            const uint16_t delta = speed == 0 ? Cfg::co2.offDelta : Cfg::co2.speedDelta;
+            if (s_speedPrev <= speed || (uint16_t)(tr - s_average) >= delta) break;
         }
     }
     s_speedPrev = speed;

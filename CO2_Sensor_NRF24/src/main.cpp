@@ -20,6 +20,7 @@
 #include "temp_sensor.h"
 #include "sys_info.h"
 #include "i2c_bus.h"
+#include "i2c_test.h"
 
 constexpr uint32_t STARTUP_REPORT_MS = 5000;   // показ экрана запуска (состояние радио, версия, дата сборки, автор)
 
@@ -41,7 +42,7 @@ void setup()
                   Cfg::co2.fans, Cfg::co2.transmitPeriodS, Cfg::net.ssid);
     Serial.printf("Память: куча %lu б, PSRAM %lu из %lu б\n", (unsigned long)ESP.getFreeHeap(),
                   (unsigned long)ESP.getFreePsram(), (unsigned long)ESP.getPsramSize());
-    if (!History::configure(Cfg::co2.historyDays, Cfg::co2.transmitPeriodS, Cfg::co2.tempSensor != TEMP_SENSOR_NONE))
+    if (!History::configure(Cfg::co2.historyDays, Cfg::co2.transmitPeriodS))
         Serial.println("История: нет памяти!");
 
     I2cBus::setKhz(Cfg::co2.i2cKhz);   // частота шины I2C - до первого обмена
@@ -104,15 +105,21 @@ void loop()
         SysInfo::update(now);   // под замком: таблицу задач читает и веб
         loopMark(LP_SYS);
         I2cBus::setKhz(Cfg::co2.i2cKhz);             // частота шины I2C - из настроек (меню / веб - сразу)
-        Co2Sensor::update(now, Cfg::co2.co2PollS);   // период опроса - из настроек
+        // Тест I2C (веб): вместо опроса датчиков на I2C (K22, SHT40) и экрана с тачем; S8 (UART) и DS18B20 (1-Wire) - как обычно
+        const bool test = I2cTest::active();
+        if (test) I2cTest::loop(now);                // CO2 для вентиляторов - из чтений теста (K22)
+        // период опроса и повторы неудачного чтения - из настроек
+        if (!test || CO2_SENSOR != CO2_SENSOR_K22)
+            Co2Sensor::update(now, Cfg::co2.co2PollS, Cfg::co2.sensorRetries, Cfg::co2.sensorRetryMs);
         loopMark(LP_CO2);
-        TempSensor::update(now, Cfg::co2.tempSensor, Cfg::co2.tempPeriodS);   // датчик температуры: тип из настроек
-        History::setTemp(Cfg::co2.tempSensor != TEMP_SENSOR_NONE);           // буфер температуры - при выбранном датчике
+        if (!test || Cfg::co2.tempSensor != TEMP_SENSOR_SHT40)
+            TempSensor::update(now, Cfg::co2.tempSensor, Cfg::co2.tempPeriodS,   // датчик температуры: тип из настроек
+                               Cfg::co2.sensorRetries, Cfg::co2.sensorRetryMs);
         loopMark(LP_TEMP);
         FanControl::update(now, Co2Sensor::co2(), Co2Sensor::isValid(now));
         if (FanControl::radioReconfigured()) Radio::verifyRegisters(nullptr, 0, true);   // несовпавшие регистры - в журнал
         loopMark(LP_FAN);
-        Ui::update(now);
+        if (!test) Ui::update(now);
         loopMark(LP_UI);
         debug = Cfg::co2.debug;
     }

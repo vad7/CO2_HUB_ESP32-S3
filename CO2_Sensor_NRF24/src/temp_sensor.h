@@ -8,7 +8,8 @@
 #include "temp_backend.h"   // TempErr
 
 namespace TempSensor {
-    void        update(uint32_t now, uint8_t type, uint8_t periodS);   // type - TempSensorType, periodS - период, с
+    // type - TempSensorType, periodS - период, с; неудачное чтение - до retries повторов через retryMs
+    void        update(uint32_t now, uint8_t type, uint8_t periodS, uint8_t retries, uint16_t retryMs);
     bool        active();                        // датчик выбран
     bool        valid();                         // есть значение и меньше TEMP_FAIL_COUNT ошибок подряд
     int16_t     tenthsC();                       // последняя температура, 0.1 °C

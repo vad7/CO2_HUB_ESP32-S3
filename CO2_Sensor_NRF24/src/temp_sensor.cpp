@@ -1,5 +1,7 @@
 // temp_sensor.cpp - датчик температуры: выбор драйвера по типу из настроек, период, учёт ошибок.
 // Смена типа на лету: старый драйвер освобождает вывод / шину, счётчики и значение сбрасываются.
+// Неудачное чтение повторяется через паузу (настройки co2.sensorRetries / co2.sensorRetryMs), не дожидаясь следующего
+// периода; в журнал ошибок - только неудача после всех повторов (SHT40 - с адресом в старшем байте аргумента).
 #include "temp_sensor.h"
 #include "temp_backend.h"
 #include "config.h"
@@ -23,6 +25,10 @@ static bool     s_everValid = false;                // было хоть одн�
 static uint8_t  s_fails     = 0;                  // ошибок подряд
 static uint32_t s_errors    = 0;                  // ошибок всего
 static TempErr  s_lastErr   = TempErr::NoData;      // ошибка последнего чтения
+static uint8_t  s_tries     = 0;                  // повторов текущего чтения после неудачи
+static bool     s_retryWait = false;              // ждём паузу перед повтором
+static uint32_t s_retryTime = 0;                  // момент неудачи (millis) - отсчёт паузы
+static uint32_t s_retryCount = 0;                 // повторов всего (неудачи, исправленные повтором)
 
 static void detachCurrent()
 {
@@ -38,22 +44,38 @@ static void select(uint8_t type)
     s_rh = -1;
     s_fails = 0;
     s_errors = 0;
+    s_retryCount = 0;
+    s_tries = 0;
+    s_retryWait = false;
     s_lastErr = TempErr::NoData;
     if (type == TEMP_SENSOR_DS18B20) Ds18b20::attach();
     if (type == TEMP_SENSOR_SHT40)   Sht40::attach();
 }
 
-void update(uint32_t now, uint8_t type, uint8_t periodS)
+static void startMeasure(uint32_t now)
+{
+    s_busy = true;
+    if (s_type == TEMP_SENSOR_DS18B20) Ds18b20::start(now);
+    else                               Sht40::start(now);
+}
+
+void update(uint32_t now, uint8_t type, uint8_t periodS, uint8_t retries, uint16_t retryMs)
 {
     if (type == TEMP_SENSOR_DS18B20 && !TEMP_DS18B20_AVAILABLE) type = TEMP_SENSOR_NONE;
     if (type != s_type) select(type);
     if (s_type == TEMP_SENSOR_NONE) return;
     if (!s_busy) {
+        if (s_retryWait) {                                  // повтор после неудачи - через паузу
+            if (now - s_retryTime < retryMs) return;
+            s_retryWait = false;
+            startMeasure(now);
+            return;
+        }
         if (s_started && now - s_cycleStart < (uint32_t)periodS * MS_PER_S) return;
-        s_started = s_busy = true;
+        s_started = true;
         s_cycleStart = now;
-        if (s_type == TEMP_SENSOR_DS18B20) Ds18b20::start(now);
-        else                               Sht40::start(now);
+        s_tries = 0;
+        startMeasure(now);
         return;
     }
     TempErr err = TempErr::None;
@@ -68,10 +90,17 @@ void update(uint32_t now, uint8_t type, uint8_t periodS)
         s_rh = rh;
         s_everValid = true;
         s_fails = 0;
+        s_tries = 0;
+    } else if (s_tries < retries) {
+        s_tries++;
+        s_retryCount++;
+        s_retryWait = true;
+        s_retryTime = now;
     } else {
         s_errors++;
         if (s_fails < UINT8_MAX) s_fails++;
-        ErrLog::add(ErrDev::Temp, (uint8_t)err, s_type);
+        const uint16_t addr = s_type == TEMP_SENSOR_SHT40 ? Sht40::errAddr() : 0;   // SHT40: адрес, где пропал
+        ErrLog::add(ErrDev::Temp, (uint8_t)err, (uint16_t)(s_type | (addr << ERRLOG_ADDR_SHIFT)));
     }
 }
 
@@ -87,7 +116,7 @@ const char* errText(TempErr e, bool brief)
 {
     static const char* const FULL[(uint8_t)TempErr::Count] = {
         "OK", "нет данных", "линия DQ в нуле (замыкание / нет подтяжки)", "нет ответа датчика", "ошибка CRC",
-        "неверные данные", "нет преобразования (85 градусов)", "нет ответа по I2C (адрес 0x44..0x46)" };
+        "неверные данные", "нет преобразования (85 градусов)", "нет ответа по I2C" };
     static const char* const BRIEF[(uint8_t)TempErr::Count] = {
         "OK", "нет данных", "линия в нуле", "нет ответа", "ошибка CRC", "неверные данные", "сбой питания", "нет ответа" };
     const uint8_t i = (uint8_t)e < (uint8_t)TempErr::Count ? (uint8_t)e : (uint8_t)TempErr::NoData;
@@ -138,12 +167,14 @@ void statusText(char* buf, size_t len)
     if (s_rh >= 0) snprintf(val, sizeof(val), "%s%d.%d °C, %d %%", s_tenths < 0 ? "-" : "", a / TENTHS, a % TENTHS, humidity());
     else           snprintf(val, sizeof(val), "%s%d.%d °C", s_tenths < 0 ? "-" : "", a / TENTHS, a % TENTHS);
     if (valid() && s_lastErr == TempErr::None)
-        snprintf(buf, len, "%s (%s, ошибок %lu)", val, where, (unsigned long)s_errors);
+        snprintf(buf, len, "%s (%s, ошибок %lu, повторов %lu)", val, where, (unsigned long)s_errors,
+                 (unsigned long)s_retryCount);
     else if (valid())
-        snprintf(buf, len, "%s, последнее чтение: %s (%s, ошибок %lu)", val, errText(s_lastErr), where,
-                 (unsigned long)s_errors);
+        snprintf(buf, len, "%s, последнее чтение: %s (%s, ошибок %lu, повторов %lu)", val, errText(s_lastErr), where,
+                 (unsigned long)s_errors, (unsigned long)s_retryCount);
     else
-        snprintf(buf, len, "%s (%s, ошибок %lu)", errText(s_lastErr), where, (unsigned long)s_errors);
+        snprintf(buf, len, "%s (%s, ошибок %lu, повторов %lu)", errText(s_lastErr), where, (unsigned long)s_errors,
+                 (unsigned long)s_retryCount);
 }
 
 } // namespace TempSensor

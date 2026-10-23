@@ -31,7 +31,7 @@
 #error "CO2_SENSOR: CO2_SENSOR_K22 или CO2_SENSOR_S8"
 #endif
 
-#define FW_VERSION               "2.0.1"                // прошивка датчика-хаба (1.x - ESP8266 хаб)
+#define FW_VERSION               "2.0.2"                // прошивка датчика-хаба (1.x - ESP8266 хаб)
 #define FW_ID                    FW_BOARD_ID "_" FW_SENSOR_ID   // сборка: плата_датчик (es3c28p_k22, tdisplay_s3_s8 …)
 #define FW_ID_MARKER             "CO2HUB_FWID="         // метка в образе: Scripts/copy_firmware.py берёт FW_ID из .bin
 #define FW_AUTHOR                "Вадим (vad7@yahoo.com)"   // меню «О программе», веб «Система»
@@ -74,6 +74,7 @@
 #define TOUCH_PIN_RST           18
 #define TOUCH_I2C_ADDR          0x38
 #define TOUCH_REG_VENDOR_ID     0xA8    // FT6336G: регистр ID производителя - проверка наличия тача
+#define TOUCH_REG_TD_STATUS     0x02    // FT6336G: число касаний - с него LovyanGFX читает касание (Touch_FT5x06::_read_data)
 
 // --- Шина I2C0: тач + K22 (разъём P4: 1-3V3, 2-GND, 3-SCL, 4-SDA), подтяжки 4.7k на плате ---
 #define I2C_PORT                0
@@ -179,6 +180,14 @@ constexpr uint8_t  CO2_POLL_MIN_S        = 1;       // настройка 1..60 
 constexpr uint8_t  CO2_POLL_MAX_S        = 60;
 constexpr uint8_t  CO2_FAIL_PERIODS      = 3;       // нет валидных данных дольше 3 периодов опроса - «нет датчика»
 
+// --- Повтор неудачного чтения датчиков (CO2, температура): сразу, через паузу, не дожидаясь следующего периода;
+//     в журнал ошибок - только неудача после всех повторов. Настройки co2.sensorRetries / co2.sensorRetryMs ---
+constexpr uint8_t  SENSOR_RETRIES_DEF    = 3;       // повторов по умолчанию
+constexpr uint8_t  SENSOR_RETRIES_MAX    = 10;      // 0..10 (0 - без повторов)
+constexpr uint16_t SENSOR_RETRY_MS_DEF   = 100;     // пауза перед повтором, мс (K22: сеанс до 160 мс, гайд табл. 6)
+constexpr uint16_t SENSOR_RETRY_MS_MIN   = 10;
+constexpr uint16_t SENSOR_RETRY_MS_MAX   = 2000;
+
 // --- SenseAir K22 (Docs/SensAir_I2C_comm_guide_2_1031.pdf) ---
 constexpr uint8_t  K22_I2C_ADDR          = 0x68;    // адрес по умолчанию
 
@@ -221,6 +230,8 @@ constexpr uint8_t  K22_MC_ABC_DISABLE    = 0x02;    //   бит 1: 1 - ABC вы�
 constexpr uint16_t K22_EE_ABC_PERIOD     = 0x0040;  // ABC Period в EEPROM, 2 байта, старший первым, часы (табл. 16)
 constexpr uint32_t K22_WAIT_MS           = 20;      // tWAIT между запросом и ответом (тип. 20 мс)
 constexpr uint8_t  K22_READ_RETRIES      = 5;       // повторы чтения, если ответ «не готов»
+constexpr uint32_t K22_TWAIT_MIN_US      = 1000;    // tWAIT мин. 1 мс (табл. 6, TBD) - тест I2C: первое чтение и повторы
+constexpr uint32_t K22_SESSION_MAX_MS    = 160;     // tS макс. - весь сеанс (табл. 6): дольше - «нет ответа» (тест I2C)
 constexpr uint16_t K22_RAM_ERR_STATUS    = 0x001E;  // Error Status, 1 байт, битовое поле: 0 - без ошибок (табл. 11).
                                                     // Значение битов - «в документации продукта» (у нас её нет) - выводится кодом
 
@@ -262,6 +273,15 @@ constexpr uint32_t SHT40_MEASURE_MS      = 10;      // длительность 
 constexpr uint8_t  SHT40_CMD_SERIAL      = 0x89;    // серийный номер: 2 слова по 16 бит, за каждым CRC (табл. 8, гл. 4.7)
 constexpr uint32_t SHT40_SERIAL_WAIT_MS  = 1;       // время ответа в даташите не дано; не готов - NACK на чтение (табл. 8) -
 constexpr uint8_t  SHT40_SERIAL_TRIES    = 10;      //   повтор через столько же, не больше SHT40_SERIAL_TRIES раз
+
+// --- Тест шины I2C (i2c_test.cpp; веб «Инфо» - «Тест I2C»): на время теста loop() вместо опроса датчиков и экрана ---
+constexpr uint8_t  I2C_TEST_SESSIONS     = 50;      // сеансов каждого датчика в проходе
+constexpr uint32_t I2C_TEST_CYCLE_MS     = 1000;    // период опроса датчиков в тесте, мс
+constexpr uint8_t  I2C_TEST_SPREAD_SLOTS = 3;       // проход 1: цикл делится на слоты K22 / SHT40 / тач
+constexpr uint32_t I2C_TEST_K22_DELAYS_MS[] = { 100, 120, 160 };   // проход 3: первое чтение ответа K22 через, мс
+constexpr uint8_t  I2C_TEST_K22_READS    = 3;       // проход 3: чтений ответа K22 не больше
+constexpr uint32_t I2C_TEST_K22_REREAD_MS = K22_WAIT_MS;   // проход 3: между чтениями ответа, мс
+constexpr size_t   I2C_TEST_REPORT_LEN   = 4096;    // отчёт теста (текст), байт; в куче - с первого теста
 
 // --- Радио nRF24L01+ (протокол хаба ESP8266 -> вентиляторы, Old/ESP8266_WIFI/app/nrf24l01.c) ---
 constexpr uint32_t RADIO_SPI_HZ          = 4000000;
@@ -307,6 +327,8 @@ constexpr uint8_t  RF_CHANNEL_DEF        = 2;       // sensor_rf_channel хаб�
 constexpr uint8_t  FAN_ADDR_LSB_DEF      = 0xC1;    // адрес нового вентилятора: C1 + номер
 // Умолчания настроек CO2 (hub_config.cpp, defaultsCo2): пороги скорости 1..6, ppm - wireless_co2_init() хаба
 constexpr uint16_t CO2_THRESHOLDS_DEF[FAN_SPEED_MAX] = { 500, 550, 600, 800, 900, 1100 };
+constexpr uint16_t OFF_DELTA_UNSET       = UINT16_MAX;   // гистерезис выключения (co2.offDelta) не задан: при загрузке
+                                                    // берётся гистерезис понижения скорости (как было до настройки)
 constexpr uint16_t NIGHT_START_DEF       = 2200;    // ночь в будни: начало, hhmm
 constexpr uint16_t NIGHT_END_DEF         = 600;     //   конец
 constexpr uint16_t NIGHT_START_WD_DEF    = 2300;    // ночь в выходные (сб, вс): начало, hhmm
@@ -318,8 +340,9 @@ constexpr uint16_t HISTORY_DAYS_DEF      = 7;
 constexpr uint16_t HISTORY_DAYS_MIN      = 1;
 constexpr uint16_t HISTORY_DAYS_MAX      = 365;
 constexpr uint32_t HISTORY_RECORDS_MIN   = 100;     // меньше не выделяется (даже если просят меньше)
-constexpr uint32_t HISTORY_CO2_REC_BYTES = 6;       // запись CO2: аптайм 4 + ppm 2
-constexpr uint32_t HISTORY_TEMP_REC_BYTES = 2;      // запись температуры: 0.1 °C, int16
+constexpr uint32_t HISTORY_REC_BYTES     = 5;       // запись: прибавка к периоду 1 + CO2 2 + температура 2 (history.h)
+constexpr uint32_t HISTORY_EXTRA_MAX_S   = UINT8_MAX;   // наибольшая прибавка интервала записей к периоду, с (1 байт);
+                                                    // пропуск длиннее - записи «нет данных» через период
 constexpr size_t   HISTORY_PSRAM_RESERVE = 64 * 1024;   // оставить свободным в PSRAM
 constexpr size_t   HISTORY_RAM_RESERVE   = 96 * 1024;   // без PSRAM: оставить во внутренней RAM (Wi-Fi, веб)
 constexpr uint32_t S_PER_DAY_CFG         = 86400;
@@ -362,6 +385,7 @@ constexpr uint32_t WEB_STACK_SIZE        = 8192;
 constexpr size_t   ERRLOG_BYTES          = 4096;    // размер журнала (запись - 16 байт: 256 записей)
 constexpr uint8_t  ERRLOG_MERGE_DEPTH    = 16;      // та же ошибка среди последних N записей - счётчик повторов, не новая запись
 constexpr size_t   ERRLOG_LINE_LEN       = 128;     // расшифрованная строка записи (экран, веб)
+constexpr uint8_t  ERRLOG_ADDR_SHIFT     = 8;       // датчик температуры: аргумент = тип | адрес I2C << 8 (SHT40; 0 - не найден)
 constexpr size_t   ERRLOG_STAMP_LEN      = 24;      // время события «20.10 09:15:02» / «+123:04:05» с нулём
 constexpr size_t   ERRLOG_TIME_LEN       = 48;      // диапазон «20.10 23:58:03 - 21.10 07:12:45 x65535» с нулём
 
@@ -390,7 +414,8 @@ constexpr uint32_t TOUCH_CAL_DONE_MS     = 1000;    // показ «Сохран
 constexpr uint32_t WEB_RESTART_DELAY_MS  = 500;     // перезапуск по команде из веба (после ответа)
 constexpr uint32_t BTN_DEBOUNCE_MS       = 30;
 constexpr uint32_t BTN_LONG_MS           = 800;
-constexpr uint32_t TOUCH_POLL_MS         = 30;
+constexpr uint32_t TOUCH_POLL_MS         = 30;      // опрос тача (ES), мс
+constexpr uint8_t  TOUCH_FAIL_POLLS      = 3;       // столько опросов подряд «INT в нуле, точек нет» - сбой чтения тача в журнал
 constexpr uint16_t CO2_LEVEL_GREEN       = 500;     // цвета как на веб-странице хаба:
 constexpr uint16_t CO2_LEVEL_NORMAL      = 700;     // <=500 зелёный, <=700 обычный,
 constexpr uint16_t CO2_LEVEL_ORANGE      = 900;     // <=900 оранжевый, иначе красный

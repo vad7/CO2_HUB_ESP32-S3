@@ -7,13 +7,18 @@
 #include <stdint.h>
 #include <stddef.h>
 
-enum class ErrDev : uint8_t { Co2, Temp, Radio, Fan, Count };
+enum class ErrDev : uint8_t { Co2, Temp, Radio, Fan, Touch, Count };
 
 // Коды по устройствам; в скобках - аргумент записи
-enum class Co2Err   : uint8_t { None, NoAnswer, BadFrame, Exception /* код Modbus */, Sensor /* статус датчика */,
-                                Stale /* - */ };
+enum class Co2Err   : uint8_t { None, NoAnswer /* K22: Co2ReadFail - почему последнее чтение ответа неудачно */,
+                                BadFrame, Exception /* код Modbus */, Sensor /* статус датчика */, Stale /* - */,
+                                ReqFail /* K22: запрос не принят (запись по I2C) */ };
+// K22, «нет ответа»: что дало последнее из K22_READ_RETRIES чтений ответа
+enum class Co2ReadFail : uint8_t { Unknown, Nack /* NACK или обрыв обмена (датчик занят) */,
+                                   NotReady /* ответ без бита complete */ };
 enum class RadioErr : uint8_t { NotFound /* - */, Reg /* регистр << 8 | значение */, RegMismatch /* то же */ };
 enum class FanErr   : uint8_t { NoAck, NoResponse, AddrFail, Silent, Remote /* байт состояния */, Eeprom };
+enum class TouchErr : uint8_t { ReadFail /* - */ };   // тач (ES3C28P): касание есть (INT), а чтение по I2C не удалось
 // Датчик температуры: код - TempErr (temp_backend.h), аргумент - тип датчика (TEMP_SENSOR_*). Вентилятор: аргумент -
 // номер вентилятора (с 0) в старшем байте, у Remote младший байт - состояние от вентилятора.
 
@@ -34,7 +39,8 @@ namespace ErrLog {
     void     add(ErrDev dev, uint8_t code, uint16_t arg = 0);
     uint16_t count();                                   // записей в журнале
     bool     get(uint16_t i, ErrEntry& e);              // i = 0 - самая новая
-    uint32_t changes();                                 // меняется при каждом добавлении (перерисовка экрана)
+    uint32_t changes();                                 // меняется при каждом добавлении и очистке (перерисовка экрана)
+    void     clear();                                   // очистить журнал (веб «Инфо»)
     // «CO2 S8: нет ответа» - устройство и ошибка без времени
     void     describe(uint8_t dev, uint8_t code, uint16_t arg, char* buf, size_t len);
     // «20.10 09:15:02 - 10:23:31 x210  CO2 S8: нет ответа» - время (timeRange) и что случилось (веб)

@@ -52,6 +52,13 @@ void add(ErrDev dev, uint8_t code, uint16_t arg)
 }
 
 uint16_t count()   { return s_count; }
+
+void clear()
+{
+    s_head = 0;
+    s_count = 0;
+    s_changes++;
+}
 uint32_t changes() { return s_changes; }
 
 bool get(uint16_t i, ErrEntry& e)
@@ -84,7 +91,15 @@ static void co2Text(uint8_t code, uint16_t arg, char* buf, size_t len)
 {
     char bits[ERRLOG_LINE_LEN / 2];
     switch ((Co2Err)code) {
-    case Co2Err::NoAnswer:  snprintf(buf, len, "CO2 %s: нет ответа", CO2_SENSOR_NAME); break;
+    case Co2Err::NoAnswer:                         // K22: аргумент - что дало последнее чтение ответа
+        if ((Co2ReadFail)arg == Co2ReadFail::Nack)
+            snprintf(buf, len, "CO2 %s: нет ответа - датчик не ответил (NACK / обрыв обмена)", CO2_SENSOR_NAME);
+        else if ((Co2ReadFail)arg == Co2ReadFail::NotReady)
+            snprintf(buf, len, "CO2 %s: нет ответа - ответ не готов (нет бита complete)", CO2_SENSOR_NAME);
+        else
+            snprintf(buf, len, "CO2 %s: нет ответа", CO2_SENSOR_NAME);
+        break;
+    case Co2Err::ReqFail:   snprintf(buf, len, "CO2 %s: ошибка запроса (команда не принята по I2C)", CO2_SENSOR_NAME); break;
     case Co2Err::BadFrame:  snprintf(buf, len, "CO2 %s: неверный ответ (контрольная сумма / формат)", CO2_SENSOR_NAME); break;
     case Co2Err::Exception: snprintf(buf, len, "CO2 %s: исключение Modbus %u", CO2_SENSOR_NAME, arg); break;
     case Co2Err::Sensor:
@@ -119,9 +134,17 @@ void describe(uint8_t dev, uint8_t code, uint16_t arg, char* buf, size_t len)
     case ErrDev::Co2:
         co2Text(code, arg, buf, len);
         break;
-    case ErrDev::Temp:
-        snprintf(buf, len, "%s: %s", TempSensor::typeName((uint8_t)arg), TempSensor::errText((TempErr)code));
+    case ErrDev::Temp: {          // аргумент: тип датчика | адрес I2C << ERRLOG_ADDR_SHIFT (SHT40; 0 - не найден ни на одном)
+        const uint8_t type = (uint8_t)(arg & BYTE_MASK), addr = (uint8_t)(arg >> ERRLOG_ADDR_SHIFT);
+        if (type == TEMP_SENSOR_SHT40 && addr)
+            snprintf(buf, len, "%s (0x%02X): %s", TempSensor::typeName(type), addr, TempSensor::errText((TempErr)code));
+        else if (type == TEMP_SENSOR_SHT40 && (TempErr)code == TempErr::NoAck)
+            snprintf(buf, len, "%s: %s (не найден на 0x%02X..0x%02X)", TempSensor::typeName(type),
+                     TempSensor::errText((TempErr)code), SHT40_ADDRS[0], SHT40_ADDRS[sizeof(SHT40_ADDRS) - 1]);
+        else
+            snprintf(buf, len, "%s: %s", TempSensor::typeName(type), TempSensor::errText((TempErr)code));
         break;
+    }
     case ErrDev::Radio:
         if ((RadioErr)code == RadioErr::NotFound)
             snprintf(buf, len, "nRF24: модуль не найден (нет ответа по SPI)");
@@ -131,6 +154,9 @@ void describe(uint8_t dev, uint8_t code, uint16_t arg, char* buf, size_t len)
         break;
     case ErrDev::Fan:
         fanText(code, arg, buf, len);
+        break;
+    case ErrDev::Touch:
+        snprintf(buf, len, "Тач FT6336G: касание есть, чтение по I2C не удалось");
         break;
     default:
         snprintf(buf, len, "устройство %u: ошибка %u", dev, code);

@@ -107,7 +107,7 @@ constexpr int16_t  HDR_GAP        = 8;     // промежуток между ч
 constexpr int16_t  STATUS_ICON_W  = 14;    // галочка / крестик статуса соединения
 constexpr int16_t  STATUS_ICON_H  = 12;
 constexpr int16_t  NET_LINE_H     = INFO_LINE_H;   // строка карточки «Сеть Wi-Fi»
-constexpr uint8_t  SYS_LINES      = 6;     // карточка «Состояние системы»: строк (с названием)
+constexpr uint8_t  SYS_LINES      = 5;     // карточка «Состояние системы»: строк (с названием)
 constexpr int16_t  SYS_LINE_H     = 19;    //   высота строки (9x15)
 constexpr size_t   SYS_LINE_BYTES = 64;    //   буфер строки: 34 символа на экране, кириллица - 2 байта
 constexpr int16_t  TASK_LINE_H    = 15;    // карточка «Задачи FreeRTOS»: строка 9x15 (ES - заголовок + 9 задач, TD - + 6)
@@ -139,6 +139,7 @@ constexpr int16_t  TEMP_RH_GAP    = 10;    // между температуро�
 constexpr uint32_t TOUCH_REPEAT_DELAY_MS = 500;
 constexpr uint32_t TOUCH_REPEAT_MS       = 120;
 constexpr uint16_t PPM_STEP       = 10;    // шаг порогов и гистерезиса в меню
+constexpr int16_t  RETRY_MS_STEP  = 10;    // шаг паузы повтора чтения датчиков в меню, мс
 constexpr uint16_t HHMM_STEP_MIN  = 15;    // шаг времени ночи
 constexpr uint16_t MIN_PER_DAY    = 24 * 60;
 constexpr uint16_t MIN_PER_HOUR   = 60;
@@ -200,7 +201,7 @@ constexpr uint16_t COL_AXIS    = TFT_LIGHTGREY;   // оси графика и п
 // Adjust - TD: режим скорости на главном экране; FansOff - режим «вентиляторы выключены» вкл. / выкл.
 enum class Key : uint8_t { None, Prev, Next, Dec, Inc, Menu, Exit, History, ShowButtons, Enter, Hide, Adjust, FansOff };
 enum class BtnEvent : uint8_t { None, Short, Long };
-enum class Screen : uint8_t { Main, Menu, History };
+enum class Screen : uint8_t { Main, Menu, History, Test };
 
 struct Button {
     int8_t   pin;
@@ -224,6 +225,7 @@ struct TouchState {
     SwipeAxis axis;                                     // журнал: направление свайпа (решается по первому сдвигу)
 };
 static TouchState s_touch = { false, Key::None, 0, 0, 0, false, 0, 0, 0, false, false, 0, SwipeAxis::None };  // состояние касания (ES)
+static uint8_t  s_touchFails  = 0;      // ES: опросов подряд «INT в нуле, а точек нет» (сбой чтения тача)
 
 // ---------------- Меню ----------------
 enum class Item : uint8_t {
@@ -233,7 +235,7 @@ enum class Item : uint8_t {
     NumberFans, Threshold1, Threshold2, Threshold3, Threshold4, Threshold5, Threshold6, SpeedDelta,
     NightStart, NightEnd, NightStartWd, NightEndWd, NightMax, BrightDay, BrightNight, TransmitPeriod, HistoryDays,
     RadioMode, PassiveChannel, NetInfo, RadioInfo, TouchCal, FactoryReset, About, TempPeriod, TempSensorType, SysState,
-    DigitsFont, Tasks, WifiMode, WebPassReset, Debug, Co2Poll, ErrLog, I2cKhz,
+    DigitsFont, Tasks, WifiMode, WebPassReset, Debug, Co2Poll, ErrLog, I2cKhz, OffDelta, SensRetries, SensRetryMs,
     Count
 };
 
@@ -244,10 +246,11 @@ static const Item G_FANS[]    = { Item::NumberFans, Item::FanSelect, Item::FanSp
                                   Item::FanDayMode, Item::FanDayValue, Item::FanNightMode, Item::FanNightValue,
                                   Item::FanChannel, Item::FanAddress };
 static const Item G_CO2[]     = { Item::Threshold1, Item::Threshold2, Item::Threshold3, Item::Threshold4, Item::Threshold5,
-                                  Item::Threshold6, Item::SpeedDelta };
+                                  Item::Threshold6, Item::SpeedDelta, Item::OffDelta };
 static const Item G_NIGHT[]   = { Item::NightStart, Item::NightEnd, Item::NightStartWd, Item::NightEndWd, Item::NightMax };  // группа «Настройка ночи»
 static const Item G_RADIO[]   = { Item::RadioMode, Item::PassiveChannel, Item::TransmitPeriod, Item::RadioInfo };  // группа «Радио nRF24»
-static const Item G_SENSORS[] = { Item::Co2Poll, Item::TempSensorType, Item::TempPeriod, Item::I2cKhz, Item::HistoryDays };  // группа «История и датчики»
+static const Item G_SENSORS[] = { Item::Co2Poll, Item::TempSensorType, Item::TempPeriod, Item::SensRetries, Item::SensRetryMs,
+                                  Item::I2cKhz, Item::HistoryDays };  // группа «История и датчики»
 static const Item G_SCREEN[]  = { Item::BrightDay, Item::BrightNight, Item::DigitsFont,
 #if HAS_TOUCH
                                   Item::TouchCal,
@@ -301,7 +304,7 @@ static uint16_t s_menuPeriodS = 0;     // период рассылки при �
 static uint32_t s_histOffset  = 0;     // записей от самой новой до правого края
 static uint8_t  s_histScale   = HIST_SCALE_DEF;     // индекс масштаба графика в HIST_SCALES
 static uint32_t s_histCount   = 0;     // History::count() при последней отрисовке
-static uint16_t s_histCols[HIST_MAX_COLS];   // CO2 колонки (среднее), колонка 0 - правый край
+static uint16_t s_histCols[HIST_MAX_COLS];   // CO2 колонки (среднее), колонка 0 - правый край; HISTORY_NO_CO2 - пропуск
 static uint32_t s_histUp[HIST_MAX_COLS];     // аптайм самой новой записи колонки
 static int16_t  s_histTemp[HIST_MAX_COLS];   // температура колонки (среднее), 0.1 °C; HISTORY_NO_TEMP - нет
 static int16_t  s_histValid   = 0;     // колонок с данными
@@ -341,12 +344,6 @@ static uint32_t histRecordsFor(uint16_t days)
     const uint16_t p = Cfg::co2.transmitPeriodS ? Cfg::co2.transmitPeriodS : 1;
     const uint32_t r = (uint32_t)((uint64_t)days * S_PER_DAY_CFG / p);
     return r < HISTORY_RECORDS_MIN ? HISTORY_RECORDS_MIN : r;
-}
-
-// Байт на запись истории: CO2 + температура, если датчик выбран
-static uint32_t histRecBytes()
-{
-    return HISTORY_CO2_REC_BYTES + (Cfg::co2.tempSensor != TEMP_SENSOR_NONE ? HISTORY_TEMP_REC_BYTES : 0);
 }
 
 // Температура в 0.1 °C -> «23.4», «-5.0»
@@ -1032,7 +1029,8 @@ static void drawHistCursor(int16_t y0, int16_t y1, int16_t yv)
         tenthsText(s_histTemp[c], v, sizeof(v));
         snprintf(tt, sizeof(tt), "  %s%cC", v, DEG_MARK);
     }
-    if (HIST_SCALES[s_histScale] > 1) snprintf(buf, sizeof(buf), "%s  ср. %u ppm%s", t, s_histCols[c], tt);
+    if (s_histCols[c] == HISTORY_NO_CO2)  snprintf(buf, sizeof(buf), "%s  нет данных%s", t, tt);
+    else if (HIST_SCALES[s_histScale] > 1) snprintf(buf, sizeof(buf), "%s  ср. %u ppm%s", t, s_histCols[c], tt);
     else                              snprintf(buf, sizeof(buf), "%s  %u ppm%s", t, s_histCols[c], tt);
     lcd.setFont(FONT_SMALL);
     const int16_t w = degTextWidth(buf) + 2 * HIST_TIP_PAD, h = (int16_t)lcd.fontHeight() + 2 * HIST_TIP_PAD;
@@ -1051,28 +1049,30 @@ static void drawHistoryChart()
     if (s_histOffset > histMaxOffset()) s_histOffset = histMaxOffset();
     s_histCount = History::count();
 
-    // Усреднение по scale записей на колонку; колонка 0 - правый край (самые новые)
+    // Усреднение по scale записей на колонку; колонка 0 - правый край (самые новые). Записи «нет данных»
+    // (пропуск, HISTORY_NO_CO2) в среднее не входят; колонка только из них - разрыв графика.
     int16_t  validCols = 0;
     uint16_t vmin = UINT16_MAX, vmax = 0;
+    HistoryCursor cur = {};                       // чтение подряд - без повторного прохода по буферу
     for (int16_t c = 0; c < cols; c++) {
-        uint32_t first = s_histOffset + (uint32_t)c * scale, sum = 0, k = 0;
+        uint32_t first = s_histOffset + (uint32_t)c * scale, sum = 0, k = 0, got = 0;
         int32_t  tsum = 0, tk = 0;
-        HistoryRecord r;
-        for (uint16_t j = 0; j < scale && History::get(first + j, r); j++) {
+        HistoryPoint r;
+        for (uint16_t j = 0; j < scale && History::get(first + j, r, cur); j++, got++) {
             if (j == 0) s_histUp[c] = r.uptimeS;
-            sum += r.co2;
-            k++;
-            const int16_t t = History::getTemp(first + j);
-            if (t != HISTORY_NO_TEMP) { tsum += t; tk++; }
+            if (r.co2 != HISTORY_NO_CO2) { sum += r.co2; k++; }
+            if (r.temp != HISTORY_NO_TEMP) { tsum += r.temp; tk++; }
         }
-        if (k == 0) break;
-        uint16_t v = (uint16_t)(sum / k);
+        if (got == 0) break;
+        const uint16_t v = k ? (uint16_t)(sum / k) : HISTORY_NO_CO2;
         s_histCols[c] = v;
         s_histTemp[c] = tk ? (int16_t)(tsum / tk) : HISTORY_NO_TEMP;
         validCols = c + 1;
+        if (v == HISTORY_NO_CO2) continue;
         if (v < vmin) vmin = v;
         if (v > vmax) vmax = v;
     }
+    if (vmin > vmax) validCols = 0;               // одни пропуски - как пустая история
     s_histValid = validCols;
     if (s_histCursor >= validCols) s_histCursor = -1;
 
@@ -1152,6 +1152,7 @@ static void drawHistoryChart()
 
     // Область под кривой
     for (int16_t c = 0; c < validCols; c++) {
+        if (s_histCols[c] == HISTORY_NO_CO2) continue;   // пропуск - разрыв
         const int16_t x = histColX(c), y = yOf(s_histCols[c]);
         lcd.drawFastVLine(x, y, y1 - y, COL_AREA);
         lcd.drawPixel(x, y, COL_AREA_TOP);
@@ -1200,7 +1201,7 @@ static void drawHistoryChart()
     lcd.drawFastVLine(x0 - 1, y0, ph + 1, COL_AXIS);
     lcd.drawFastHLine(x0 - 1, y1, cols + 1, COL_AXIS);
 
-    if (s_histCursor >= 0) drawHistCursor(y0, y1, yOf(s_histCols[s_histCursor]));
+    if (s_histCursor >= 0) drawHistCursor(y0, y1, s_histCols[s_histCursor] == HISTORY_NO_CO2 ? y1 - 1 : yOf(s_histCols[s_histCursor]));
 }
 
 #if HAS_TOUCH
@@ -1298,6 +1299,9 @@ static void itemLabel(Item it, char* buf, size_t len)
     case Item::FanAddress:     snprintf(buf, len, "Адрес"); break;
     case Item::NumberFans:     snprintf(buf, len, "Количество вентиляторов"); break;
     case Item::SpeedDelta:     snprintf(buf, len, "Гистерезис снижения"); break;
+    case Item::OffDelta:       snprintf(buf, len, "Гистерезис выключения"); break;
+    case Item::SensRetries:    snprintf(buf, len, "Повторы чтения"); break;
+    case Item::SensRetryMs:    snprintf(buf, len, "Пауза повтора"); break;
     case Item::NightStart:     snprintf(buf, len, "Начало ночи (будни)"); break;
     case Item::NightEnd:       snprintf(buf, len, "Конец ночи (будни)"); break;
     case Item::NightStartWd:   snprintf(buf, len, "Начало ночи (вых.)"); break;
@@ -1362,6 +1366,9 @@ static void itemValue(Item it, char* buf, size_t len)
     case Item::FanAddress:     snprintf(buf, len, "0x%02X", f.addressLsb); break;
     case Item::NumberFans:     snprintf(buf, len, "%u", Cfg::co2.fans); break;
     case Item::SpeedDelta:     snprintf(buf, len, "%u ppm", Cfg::co2.speedDelta); break;
+    case Item::OffDelta:       snprintf(buf, len, "%u ppm", Cfg::co2.offDelta); break;
+    case Item::SensRetries:    snprintf(buf, len, "%u", Cfg::co2.sensorRetries); break;
+    case Item::SensRetryMs:    snprintf(buf, len, "%u мс", Cfg::co2.sensorRetryMs); break;
     case Item::NightMax:       snprintf(buf, len, "%u", Cfg::co2.nightMaxSpeed); break;
     case Item::BrightDay:      snprintf(buf, len, "%u %%", Cfg::co2.brightDayPct); break;
     case Item::BrightNight:    snprintf(buf, len, "%u %%", Cfg::co2.brightNightPct); break;
@@ -1377,7 +1384,7 @@ static void itemValue(Item it, char* buf, size_t len)
         const uint32_t rec = histRecordsFor(s_histDays), maxRec = History::maxRecords();
         char sz[16];
         if (rec <= maxRec) {
-            bytesText((uint64_t)rec * histRecBytes(), sz, sizeof(sz));
+            bytesText((uint64_t)rec * HISTORY_REC_BYTES, sz, sizeof(sz));
             snprintf(buf, len, "%u сут (%s)", s_histDays, sz);
         } else {
             const uint32_t d10 = (uint32_t)((uint64_t)maxRec * Cfg::co2.transmitPeriodS * 10 / S_PER_DAY);
@@ -1463,6 +1470,19 @@ static void changeItem(Item it, int8_t dir)
         break;
     case Item::SpeedDelta:
         Cfg::co2.speedDelta = (uint16_t)clampI((int16_t)Cfg::co2.speedDelta + dir * PPM_STEP, 0, INT16_MAX);
+        s_dirtyCo2 = true;
+        break;
+    case Item::OffDelta:       // гистерезис выключения (1 -> 0); действует со следующего пересчёта
+        Cfg::co2.offDelta = (uint16_t)clampI((int16_t)Cfg::co2.offDelta + dir * PPM_STEP, 0, INT16_MAX);
+        s_dirtyCo2 = true;
+        break;
+    case Item::SensRetries:    // действует сразу (Co2Sensor / TempSensor), в NVS - при выходе
+        Cfg::co2.sensorRetries = (uint8_t)clampI(Cfg::co2.sensorRetries + dir, 0, SENSOR_RETRIES_MAX);
+        s_dirtyCo2 = true;
+        break;
+    case Item::SensRetryMs:
+        Cfg::co2.sensorRetryMs = (uint16_t)clampI((int16_t)Cfg::co2.sensorRetryMs + dir * RETRY_MS_STEP, SENSOR_RETRY_MS_MIN,
+                                                  SENSOR_RETRY_MS_MAX);
         s_dirtyCo2 = true;
         break;
     case Item::NightMax:
@@ -1736,9 +1756,8 @@ static void drawAbout()
 //   Состояние системы
 //   CPU: 12%, 35%, 45.3°C               - загрузка ядер 0 и 1 (статистика задач FreeRTOS), температура чипа
 //   Свободно RAM 180 Кб, PSRAM 7.5 Мб
-//   Буфер: 7.0 сут (30240), 236 Кб      - вмещает (сутки при текущем периоде, записей), выделено CO2 + t
+//   Буфер: 7.0 сут (30240), 148 Кб      - вмещает (сутки при текущем периоде, записей), выделено (CO2 и t° - в одной записи)
 //   Занято: 4.6 сут (19872)             - записано
-//   CO2 116 Кб, t° 39 Кб                - занято записанным (t° - записи с температурой; буфера нет - «t° нет»); ° - DEG_MARK
 // В строке 34 символа (320 px / 9 px). Худший случай (PSRAM 8 Мб, 365 сут, ~1 млн записей):
 // «Буфер: 365.0 сут (1017290), 8.1 Мб» - 34 символа.
 // force = false - перерисовка только при изменении
@@ -1753,17 +1772,10 @@ static void drawSysInfo(bool force)
     bytesText(ESP.getFreePsram(), b, sizeof(b));
     snprintf(l[2], sizeof(l[2]), "Свободно RAM %s, PSRAM %s", a, b);
     histDaysText(History::capacity(), a, sizeof(a));
-    bytesText(History::co2Bytes() + History::tempBytes(), b, sizeof(b));
+    bytesText(History::bytes(), b, sizeof(b));
     snprintf(l[3], sizeof(l[3]), "Буфер: %s сут (%lu), %s", a, (unsigned long)History::capacity(), b);
     histDaysText(History::count(), a, sizeof(a));
     snprintf(l[4], sizeof(l[4]), "Занято: %s сут (%lu)", a, (unsigned long)History::count());
-    bytesText((uint64_t)History::count() * HISTORY_CO2_REC_BYTES, a, sizeof(a));
-    if (History::hasTemp()) {
-        bytesText((uint64_t)History::tempCount() * HISTORY_TEMP_REC_BYTES, b, sizeof(b));
-        snprintf(l[5], sizeof(l[5]), "CO2 %s, t%c %s", a, DEG_MARK, b);
-    } else {
-        snprintf(l[5], sizeof(l[5]), "CO2 %s, t%c нет", a, DEG_MARK);
-    }
     char sig[sizeof(s_sysShown)];
     size_t n = 0;
     for (uint8_t i = 1; i < SYS_LINES && n < sizeof(sig); i++) n += snprintf(sig + n, sizeof(sig) - n, "%s|", l[i]);
@@ -2149,7 +2161,7 @@ static void exitMenu()
     if (s_histDays != Cfg::co2.historyDays || Cfg::co2.transmitPeriodS != s_menuPeriodS) {
         if (s_histDays != Cfg::co2.historyDays) s_dirtyCo2 = true;
         Cfg::co2.historyDays = s_histDays;
-        History::configure(Cfg::co2.historyDays, Cfg::co2.transmitPeriodS, Cfg::co2.tempSensor != TEMP_SENSOR_NONE);
+        History::configure(Cfg::co2.historyDays, Cfg::co2.transmitPeriodS);
     }
     Cfg::sanitize();
     if (s_dirtyCo2)  Cfg::saveCo2();
@@ -2276,6 +2288,13 @@ static Key touchToKey(uint32_t now)
     }
     lgfx::touch_point_t tp;
     if (lcd.getTouch(&tp, 1) == 0) {
+        // LovyanGFX не отличает сбой чтения от «касания нет»: INT в нуле (касание есть), а точек нет -
+        // TOUCH_FAIL_POLLS опросов подряд - сбой чтения по I2C, в журнал ошибок
+        if (digitalRead(TOUCH_PIN_INT) == LOW) {
+            if (s_touchFails < UINT8_MAX && ++s_touchFails == TOUCH_FAIL_POLLS) ErrLog::add(ErrDev::Touch, (uint8_t)TouchErr::ReadFail);
+        } else {
+            s_touchFails = 0;
+        }
         if (s_touch.down && s_touch.drag && !s_touch.moved && s_screen == Screen::History) {   // касание графика без сдвига - курсор
             s_lastInput = now;
             histTap(s_touch.startX);
@@ -2284,6 +2303,7 @@ static Key touchToKey(uint32_t now)
         s_touch.drag = false;
         return Key::None;
     }
+    s_touchFails = 0;
     if (!s_touch.down) {
         s_touch.down = true;
         s_touch.key = touchZone(tp.x, tp.y);
@@ -2467,6 +2487,25 @@ void showRadioStatus(bool found)
 {
     drawLine(found ? "nRF24: OK" : "nRF24: не найден (меню: Система - Журнал ошибок)", HEADER_H, INFO_LINE_H, FONT_SMALL,
              found ? COL_OK : COL_ERR);
+}
+
+// Тест I2C (i2c_test.cpp): тач и кнопки не опрашиваются - только надпись и ход теста
+void showTest(const char* line)
+{
+    if (s_screen != Screen::Test) {
+        s_screen = Screen::Test;
+        lcd.fillScreen(COL_BG);
+        drawLine("Тест I2C", 0, HEADER_H, FONT_TEXT, COL_HEADER);
+        drawLine("Отчёт - в вебе, страница Инфо", HEADER_H, INFO_LINE_H, FONT_SMALL, COL_DIM);
+    }
+    drawLine(line, HEADER_H + INFO_LINE_H, INFO_LINE_H, FONT_SMALL, COL_TEXT);
+}
+
+void endTest()
+{
+    s_screen = Screen::Main;
+    s_lastInput = millis();
+    drawMainStatic();
 }
 
 // Яркость подсветки: днём / ночью (ночной режим - расписание или ручной переключатель, как у вентиляторов).

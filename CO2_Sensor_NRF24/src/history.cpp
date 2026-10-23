@@ -1,11 +1,7 @@
-// history.cpp - кольцевые буферы истории CO2 и температуры (параллельные: один индекс - одно время).
-// Память выделяется при старте и при смене срока / периода (configure, история очищается); буфер
-// температуры - при выборе датчика температуры (setTemp), для старых записей - «нет данных».
+// history.cpp - кольцевой буфер истории CO2 и температуры, время - прибавками к периоду (history.h).
+// Память выделяется при старте и при смене срока / периода (configure, история очищается).
 // Размер ограничивается свободной памятью: самый большой свободный блок PSRAM минус HISTORY_PSRAM_RESERVE
-// (без PSRAM - внутренней RAM минус HISTORY_RAM_RESERVE), с расчётом на оба буфера (8 байт на запись),
-// чтобы буфер температуры поместился и позже.
-// Мин / макс температуры по всему буферу - с обновлением при записи; пересчёт всего буфера только когда
-// затирается запись с текущим минимумом или максимумом.
+// (без PSRAM - внутренней RAM минус HISTORY_RAM_RESERVE).
 #include "history.h"
 #include "config.h"
 #include <Arduino.h>
@@ -13,17 +9,18 @@
 
 namespace History {
 
-constexpr uint32_t REC_BYTES_BOTH = HISTORY_CO2_REC_BYTES + HISTORY_TEMP_REC_BYTES;
-static_assert(sizeof(HistoryRecord) == HISTORY_CO2_REC_BYTES, "размер записи CO2");
+static_assert(sizeof(HistoryRecord) == HISTORY_REC_BYTES, "размер записи истории");
 
-static HistoryRecord* s_buf     = nullptr;          // буфер CO2 (PSRAM / RAM), кольцевой
-static int16_t*       s_temp    = nullptr;          // буфер температуры (тот же индекс), nullptr - нет
+static HistoryRecord* s_buf     = nullptr;          // буфер (PSRAM / RAM), кольцевой
 static uint32_t       s_cap     = 0;                // вмещает записей
 static uint32_t       s_wanted  = 0;                // заказано записей (сутки x период)
-static uint32_t       s_head    = 0;   // индекс следующей записи
+static uint32_t       s_head    = 0;                // индекс следующей записи
 static uint32_t       s_count   = 0;                // записей сейчас (не больше s_cap)
-static uint32_t       s_tempCnt = 0;   // записей с температурой
-static bool           s_psram   = false;            // буферы в PSRAM
+static uint32_t       s_periodS = 1;                // период рассылки, с (интервал записей без прибавки)
+static uint32_t       s_lastUp  = 0;                // аптайм самой новой записи, с
+static uint32_t       s_added   = 0;                // записей добавлено всего (сдвиг номеров для HistoryCursor)
+static uint32_t       s_gen     = 0;                // поколение буфера: clear / configure - позиции читателей недействительны
+static bool           s_psram   = false;            // буфер в PSRAM
 
 static bool havePsram() { return ESP.getPsramSize() > 0; }
 
@@ -36,103 +33,89 @@ static size_t freeForHistory()
     return block > reserve ? block - reserve : 0;
 }
 
-static void freeAll()
-{
-    if (s_buf)  heap_caps_free(s_buf);
-    if (s_temp) heap_caps_free(s_temp);
-    s_buf = nullptr;
-    s_temp = nullptr;
-    s_cap = 0;
-}
-
-static void fillNoTemp()
-{
-    for (uint32_t i = 0; i < s_cap; i++) s_temp[i] = HISTORY_NO_TEMP;
-}
-
 void clear()
 {
-    s_head = s_count = s_tempCnt = 0;
-    if (s_temp) fillNoTemp();
+    s_head = s_count = 0;
+    s_gen++;
 }
 
-bool configure(uint16_t days, uint16_t periodS, bool withTemp)
+bool configure(uint16_t days, uint16_t periodS)
 {
     if (periodS == 0) periodS = 1;
+    s_periodS = periodS;
     s_wanted = (uint32_t)((uint64_t)days * S_PER_DAY_CFG / periodS);
     if (s_wanted < HISTORY_RECORDS_MIN) s_wanted = HISTORY_RECORDS_MIN;
-    freeAll();                                  // сначала освободить - тогда весь объём доступен
+    if (s_buf) heap_caps_free(s_buf);           // сначала освободить - тогда весь объём доступен
+    s_buf = nullptr;
     s_psram = havePsram();
     uint32_t n = s_wanted;
-    const uint32_t fit = (uint32_t)(freeForHistory() / REC_BYTES_BOTH);
+    const uint32_t fit = (uint32_t)(freeForHistory() / HISTORY_REC_BYTES);
     if (n > fit) n = fit;
-    if (n >= HISTORY_RECORDS_MIN) s_buf = (HistoryRecord*)heap_caps_malloc((size_t)n * HISTORY_CO2_REC_BYTES, caps());
+    if (n >= HISTORY_RECORDS_MIN) s_buf = (HistoryRecord*)heap_caps_malloc((size_t)n * HISTORY_REC_BYTES, caps());
     s_cap = s_buf ? n : 0;
-    s_head = s_count = s_tempCnt = 0;
-    if (withTemp) setTemp(true);
-    Serial.printf("История: %lu сут при %u с -> нужно %lu записей, выделено %lu (%s), CO2 %lu б, температура %lu б\n",
+    clear();
+    Serial.printf("История: %lu сут при %u с -> нужно %lu записей, выделено %lu (%s), %lu б\n",
                   (unsigned long)days, periodS, (unsigned long)s_wanted, (unsigned long)s_cap, s_psram ? "PSRAM" : "RAM",
-                  (unsigned long)co2Bytes(), (unsigned long)tempBytes());
+                  (unsigned long)bytes());
     return s_buf != nullptr;
 }
 
-void setTemp(bool on)
+static void put(uint8_t extraS, uint16_t co2, int16_t temp)
 {
-    if (on == (s_temp != nullptr) || s_cap == 0) return;
-    if (!on) {
-        heap_caps_free(s_temp);
-        s_temp = nullptr;
-        s_tempCnt = 0;
-        return;
-    }
-    s_temp = (int16_t*)heap_caps_malloc((size_t)s_cap * HISTORY_TEMP_REC_BYTES, caps());
-    if (!s_temp) { Serial.println("История: нет памяти под буфер температуры"); return; }
-    fillNoTemp();                               // старые записи CO2 - без температуры
-    s_tempCnt = 0;
+    s_buf[s_head] = { extraS, co2, temp };
+    s_head = (s_head + 1) % s_cap;
+    if (s_count < s_cap) s_count++;
+    s_added++;
 }
 
 void add(uint16_t co2, int16_t tempTenths, uint32_t uptimeS)
 {
     if (s_buf == nullptr) return;
-    if (s_temp) {
-        const int16_t old = s_temp[s_head];     // затираемая запись (при неполном буфере - «нет данных»)
-        if (old != HISTORY_NO_TEMP) s_tempCnt--;
-        s_temp[s_head] = tempTenths;
-        if (tempTenths != HISTORY_NO_TEMP) s_tempCnt++;
+    uint32_t extra = 0;                         // интервал сверх периода, с
+    if (s_count > 0 && uptimeS > s_lastUp + s_periodS) extra = uptimeS - s_lastUp - s_periodS;
+    if (extra > HISTORY_EXTRA_MAX_S) {          // долгий пропуск - записи «нет данных» через период
+        const uint32_t fills = (extra - HISTORY_EXTRA_MAX_S + s_periodS - 1) / s_periodS;
+        if (fills >= s_cap) {
+            clear();                            // пропуск длиннее всего буфера - старые записи не нужны
+            extra = 0;
+        } else {
+            for (uint32_t k = 0; k < fills; k++) put(0, HISTORY_NO_CO2, HISTORY_NO_TEMP);
+            extra -= fills * s_periodS;
+        }
     }
-    s_buf[s_head].uptimeS = uptimeS;
-    s_buf[s_head].co2     = co2;
-    s_head = (s_head + 1) % s_cap;
-    if (s_count < s_cap) s_count++;
+    put((uint8_t)extra, co2, tempTenths);
+    s_lastUp = uptimeS;
 }
 
 uint32_t count()     { return s_count; }
 uint32_t capacity()  { return s_cap; }
 uint32_t wanted()    { return s_wanted; }
-bool     hasTemp()   { return s_temp != nullptr; }
-uint32_t tempCount() { return s_tempCnt; }
-size_t   co2Bytes()  { return (size_t)s_cap * HISTORY_CO2_REC_BYTES; }
-size_t   tempBytes() { return s_temp ? (size_t)s_cap * HISTORY_TEMP_REC_BYTES : 0; }
+size_t   bytes()     { return (size_t)s_cap * HISTORY_REC_BYTES; }
 bool     inPsram()   { return s_psram; }
 
 uint32_t maxRecords()
 {
-    return (uint32_t)((freeForHistory() + co2Bytes() + tempBytes()) / REC_BYTES_BOTH);
+    return (uint32_t)((freeForHistory() + bytes()) / HISTORY_REC_BYTES);
 }
 
 static uint32_t slot(uint32_t i) { return (s_head + s_cap - 1 - i) % s_cap; }
 
-bool get(uint32_t i, HistoryRecord& rec)
+bool get(uint32_t i, HistoryPoint& p, HistoryCursor& c)
 {
     if (i >= s_count) return false;
-    rec = s_buf[slot(i)];
+    uint32_t idx = 0, up = s_lastUp;            // по умолчанию - проход от самой новой записи
+    if (c.valid && c.gen == s_gen) {
+        const uint32_t shifted = c.index + (s_added - c.added);   // та же запись после добавления новых
+        if (shifted <= i && shifted < s_count) { idx = shifted; up = c.uptimeS; }
+    }
+    for (; idx < i; idx++) {
+        const uint32_t step = s_periodS + s_buf[slot(idx)].extraS;
+        up = up > step ? up - step : 0;
+    }
+    const HistoryRecord& r = s_buf[slot(i)];
+    p = { up, r.co2, r.temp };
+    c = { i, up, s_added, s_gen, true };
     return true;
-}
-
-int16_t getTemp(uint32_t i)
-{
-    if (s_temp == nullptr || i >= s_count) return HISTORY_NO_TEMP;
-    return s_temp[slot(i)];
 }
 
 } // namespace History

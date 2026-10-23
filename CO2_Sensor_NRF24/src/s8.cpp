@@ -4,6 +4,8 @@
 // ответ 13 байт: адрес, функция, число байт (8), IR1 MeterStatus, IR2, IR3, IR4 Space CO2, CRC (младший первым).
 // Между опросами - ABC, запрошенное из веба: чтение HR32 (0x03, ответ 7 байт) и запись (0x06, ответ - эхо 8 байт).
 // Неблокирующий автомат: байты ответа забираются из буфера UART в update(), ожидание - по millis().
+// Неудачный опрос CO2 (нет ответа, неверный кадр, исключение Modbus) повторяется через паузу (настройки co2.sensorRetries /
+// co2.sensorRetryMs), в журнал ошибок - только неудача после всех повторов.
 // Уровни UART датчика 3.3 В - подключение к ESP32-S3 напрямую. Порт - Serial1 (UART1) через GPIO-matrix.
 #include "config.h"
 #if CO2_SENSOR == CO2_SENSOR_S8
@@ -17,7 +19,7 @@ namespace Co2Sensor {
 
 constexpr uint32_t MS_PER_S = 1000;
 
-enum class State : uint8_t { Idle, WaitResponse };
+enum class State : uint8_t { Idle, WaitResponse, RetryWait };
 enum class Op : uint8_t { None, Co2, ReadAbc, WriteAbc };
 
 constexpr uint8_t  REQ_LEN       = 8;                           // адрес, функция, рег. Hi/Lo, кол-во (значение) Hi/Lo, CRC Lo/Hi
@@ -50,6 +52,10 @@ static Co2Err   s_lastErr   = Co2Err::None;         // ошибка послед
 static uint8_t  s_excCode   = 0;        // код последнего исключения Modbus
 static uint8_t  s_failRun   = 0;        // неудачных опросов подряд (0 - последний удачный)
 static bool     s_wasValid  = false;    // для записи «нет данных» в журнал при переходе
+static uint8_t  s_tries     = 0;        // повторов текущего опроса CO2 после неудачи
+static uint8_t  s_maxRetries = SENSOR_RETRIES_DEF;    // повторов неудачного опроса (из update)
+static uint32_t s_retryMs   = SENSOR_RETRY_MS_DEF;    // пауза перед повтором, мс (из update)
+static uint32_t s_retryCount = 0;       // повторов всего (неудачи, исправленные повтором, - не ошибки)
 static uint8_t  s_rx[RESP_MAX];                     // принятые байты ответа
 static uint8_t  s_rxLen     = 0;                    // сколько байт ответа принято
 
@@ -151,18 +157,27 @@ static void startOp(Op op, uint32_t now)
     s_state     = State::WaitResponse;
 }
 
-// Ошибка опроса CO2: счётчик, последняя ошибка, журнал
-static void co2Fail(Co2Err e, uint16_t arg)
+// Ошибка опроса CO2: повтор через паузу, пока не кончились повторы; потом - счётчик, последняя ошибка, журнал
+static void co2Fail(Co2Err e, uint16_t arg, uint32_t now)
 {
+    if (s_tries < s_maxRetries) {
+        s_tries++;
+        s_retryCount++;
+        s_stateTime = now;                 // пауза - от неудачи
+        s_state     = State::RetryWait;
+        return;
+    }
     s_errors++;
     if (s_failRun < UINT8_MAX) s_failRun++;
     s_lastErr = e;
     ErrLog::add(ErrDev::Co2, (uint8_t)e, arg);
 }
 
-void update(uint32_t now, uint8_t periodS)
+void update(uint32_t now, uint8_t periodS, uint8_t retries, uint16_t retryMs)
 {
-    s_periodMs = (uint32_t)periodS * MS_PER_S;   // настройка меняется на лету
+    s_periodMs   = (uint32_t)periodS * MS_PER_S;   // настройки меняются на лету
+    s_maxRetries = retries;
+    s_retryMs    = retryMs;
     const bool valid = isValid(now);
     if (s_wasValid && !valid) ErrLog::add(ErrDev::Co2, (uint8_t)Co2Err::Stale);
     s_wasValid = valid;
@@ -171,23 +186,30 @@ void update(uint32_t now, uint8_t periodS)
         if (s_abcNext != Op::None) { startOp(s_abcNext, now); break; }   // ABC - между опросами CO2
         if (now - s_lastPoll < s_periodMs) break;
         s_lastPoll = now;
+        s_tries = 0;
+        startOp(Op::Co2, now);
+        break;
+
+    case State::RetryWait:
+        if (now - s_stateTime < s_retryMs) break;
         startOp(Op::Co2, now);
         break;
 
     case State::WaitResponse:
         while (s_rxLen < s_respLen && s_uart.available()) s_rx[s_rxLen++] = (uint8_t)s_uart.read();
         if (s_rxLen >= EXC_LEN && s_rx[1] == (s_req[1] | S8_EXCEPTION_FLAG)) {   // исключение Modbus
-            if (s_op == Op::Co2) { s_excCode = s_rx[2]; co2Fail(Co2Err::Exception, s_excCode); }
+            s_state = State::Idle;                      // co2Fail может перевести в ожидание повтора
+            if (s_op == Op::Co2) { s_excCode = s_rx[2]; co2Fail(Co2Err::Exception, s_excCode, now); }
             else {
                 char why[ABC_MSG_LEN];
                 snprintf(why, sizeof(why), "датчик ответил исключением Modbus %u", s_rx[2]);
                 abcFail(why);
             }
-            s_state = State::Idle;
         } else if (s_rxLen == s_respLen) {
+            s_state = State::Idle;                      // ошибка самого датчика - данные не валидны (см. statusText)
             if (s_op == Op::Co2) {
                 if (!parseCo2()) {
-                    co2Fail(Co2Err::BadFrame, 0);
+                    co2Fail(Co2Err::BadFrame, 0, now);
                 } else {
                     if (s_status) ErrLog::add(ErrDev::Co2, (uint8_t)Co2Err::Sensor, s_status);   // и «вне диапазона»
                     if ((s_status & S8_STATUS_ERRORS) == 0) {
@@ -200,11 +222,10 @@ void update(uint32_t now, uint8_t periodS)
             } else {
                 abcResponse();
             }
-            s_state = State::Idle;                      // ошибка самого датчика - данные не валидны (см. statusText)
         } else if (now - s_stateTime > S8_RESPONSE_TIMEOUT_MS) {
-            if (s_op == Op::Co2) co2Fail(s_rxLen ? Co2Err::BadFrame : Co2Err::NoAnswer, 0);   // неполный кадр / нет ответа
-            else abcFail("нет ответа датчика");
             s_state = State::Idle;
+            if (s_op == Op::Co2) co2Fail(s_rxLen ? Co2Err::BadFrame : Co2Err::NoAnswer, 0, now);   // неполный кадр / нет ответа
+            else abcFail("нет ответа датчика");
         }
         break;
     }
@@ -213,6 +234,7 @@ void update(uint32_t now, uint8_t periodS)
 bool     isValid(uint32_t now) { return s_everValid && (now - s_lastValid) < CO2_FAIL_PERIODS * s_periodMs; }
 uint16_t co2()                 { return s_co2; }
 uint32_t errorCount()          { return s_errors; }
+uint32_t retryCount()          { return s_retryCount; }
 Co2Err   lastError()           { return s_lastErr; }
 uint16_t sensorStatus()        { return s_status; }
 uint8_t  failRun()             { return s_failRun; }
@@ -248,9 +270,11 @@ void statusText(char* buf, size_t len)
     statusBitsText(s_status, bits, sizeof(bits));
     faultText(fault, sizeof(fault));
     if (isValid(millis()))
-        snprintf(buf, len, "OK, %u ppm, статус %s, ошибок обмена: %lu", s_co2, bits, (unsigned long)s_errors);
+        snprintf(buf, len, "OK, %u ppm, статус %s, ошибок обмена: %lu, повторов: %lu", s_co2, bits, (unsigned long)s_errors,
+                 (unsigned long)s_retryCount);
     else
-        snprintf(buf, len, "%s, статус %s, ошибок обмена: %lu", fault, bits, (unsigned long)s_errors);
+        snprintf(buf, len, "%s, статус %s, ошибок обмена: %lu, повторов: %lu", fault, bits, (unsigned long)s_errors,
+                 (unsigned long)s_retryCount);
 }
 
 // ------------------------------------------------------------------ ABC

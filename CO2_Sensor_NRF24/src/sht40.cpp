@@ -7,6 +7,7 @@
 // Серийный номер (гл. 4.7): команда 0x89 -> 2 слова по 16 бит, за каждым CRC; читается в цикле после найденного адреса,
 // не готов - NACK на чтение (табл. 8): повтор, не больше SHT40_SERIAL_TRIES раз.
 // Неблокирующий: запись команды (~0.3 мс) и чтение (~0.7 мс) - разные вызовы poll(), ожидание - по millis().
+// Ошибка - с адресом, на котором датчик пропал (errAddr(), в журнал ошибок).
 #include "temp_backend.h"
 #include "config.h"
 #include "lgfx_include.h"
@@ -36,6 +37,7 @@ static uint32_t s_cmdTime = 0;                      // момент команд
 static uint32_t s_serial  = 0;                      // серийный номер
 static bool     s_snOk    = false;                  // серийный номер прочитан
 static uint8_t  s_snTries = 0;                      // попыток прочитать серийный номер
+static uint8_t  s_errAddr = 0;                      // адрес последней ошибки (0 - датчик не находился ни на одном)
 
 static bool sendCommand(uint8_t addr, uint8_t cmd)
 {
@@ -52,13 +54,25 @@ static uint8_t crc8(const uint8_t* d, size_t n)
     return crc;
 }
 
-static bool readResponse(uint8_t* r)
+static bool readFrom(uint8_t addr, uint8_t* r)
 {
-    if (!lgfx::i2c::transactionRead(I2C_PORT, s_addr, r, RESP_LEN, I2cBus::hz()).has_value()) return false;
-    return true;
+    return lgfx::i2c::transactionRead(I2C_PORT, addr, r, RESP_LEN, I2cBus::hz()).has_value();
 }
 
+static bool readResponse(uint8_t* r) { return readFrom(s_addr, r); }
+
 static bool crcOk(const uint8_t* r) { return crc8(r, 2) == r[2] && crc8(r + 3, 2) == r[5]; }
+
+// Тест I2C (i2c_test.cpp): команда измерения и чтение без автомата (измерение автомата, прерванное тестом, после него
+// не прочитается - NACK, сработает повтор чтения)
+bool testCommand(uint8_t addr) { return sendCommand(addr, SHT40_CMD_MEASURE_HI); }
+
+int8_t testRead(uint8_t addr)
+{
+    uint8_t r[RESP_LEN] = {0};
+    if (!readFrom(addr, r)) return 0;
+    return crcOk(r) ? 1 : -1;
+}
 
 void attach()
 {
@@ -76,6 +90,7 @@ void start(uint32_t)
 }
 
 uint8_t address() { return s_addr; }
+uint8_t errAddr() { return s_errAddr; }
 
 bool serial(uint32_t& sn)
 {
@@ -114,7 +129,7 @@ TempPoll poll(uint32_t now, TempErr& err, int16_t& tenths, int16_t& rhTenths)
             ok = sendCommand(SHT40_ADDRS[i], SHT40_CMD_MEASURE_HI);
             if (ok) { s_addr = SHT40_ADDRS[i]; s_snOk = false; s_snTries = 0; }
         }
-        if (!ok) { s_addr = 0; err = TempErr::NoAck; return TempPoll::Done; }
+        if (!ok) { s_errAddr = s_addr; s_addr = 0; err = TempErr::NoAck; return TempPoll::Done; }   // пропал с s_addr
         s_cmdTime = now;
         s_state = State::Measuring;
         return TempPoll::Busy;
@@ -124,6 +139,7 @@ TempPoll poll(uint32_t now, TempErr& err, int16_t& tenths, int16_t& rhTenths)
     }
     if (now - s_cmdTime < SHT40_MEASURE_MS) return TempPoll::Busy;
     s_state = State::Command;
+    s_errAddr = s_addr;
     if (!readResponse(r)) { err = TempErr::NoAck; return TempPoll::Done; }
     if (!crcOk(r))        { err = TempErr::Crc; return TempPoll::Done; }
     const int32_t st  = ((int32_t)r[0] << BITS_PER_BYTE) | r[1];
